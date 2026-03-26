@@ -117,13 +117,6 @@
 
         // Ido fuggvenyek
         function sNow() { return Date.now(); }
-        function sDate() { return new Date(); }
-
-        // Precizios ido: performance.now() alapu, sub-ms pontossag
-        // Egyszer kalibralva Date.now()-hoz
-        var _perfBase = performance.now();
-        var _dateBase = Date.now();
-        function preciseNow() { return _dateBase + (performance.now() - _perfBase); }
 
         function sl(ms) {
             return new Promise(function(r) {
@@ -166,7 +159,7 @@
         function log(msg, color) {
             var el = document.getElementById("cd_log");
             if (!el) return;
-            var t = sDate();
+            var t = new Date();
             var ts = String(t.getHours()).padStart(2,"0") + ":" + String(t.getMinutes()).padStart(2,"0") + ":" + String(t.getSeconds()).padStart(2,"0") + ":" + String(t.getMilliseconds()).padStart(3,"0");
             var line = document.createElement("div");
             line.style.color = color || "#0f0";
@@ -176,7 +169,7 @@
         }
 
         function getTodayStr() {
-            var n = sDate();
+            var n = new Date();
             return n.getFullYear() + "-" + String(n.getMonth()+1).padStart(2,"0") + "-" + String(n.getDate()).padStart(2,"0");
         }
 
@@ -199,7 +192,7 @@
                 var dp = dateStr.split("-").map(Number);
                 return new Date(dp[0], dp[1]-1, dp[2], tp[0], tp[1], tp[2]||0, msVal);
             } else {
-                var d = sDate();
+                var d = new Date();
                 d.setHours(tp[0], tp[1], tp[2]||0, msVal);
                 if (d.getTime() <= sNow()) d.setDate(d.getDate()+1);
                 return d;
@@ -525,7 +518,7 @@
             atkData.sort(function(a, b) { return a.launchTime - b.launchTime; });
 
             // Elmult-e mar valamelyik
-            var now = preciseNow();
+            var now = sNow();
             var pastCount = atkData.filter(function(a) { return a.launchTime < now; }).length;
             if (pastCount > 0) {
                 if (!confirm(pastCount + " tamadas inditasi ideje mar elmult! Folytatod?")) return;
@@ -694,29 +687,28 @@
 
                 // Varakozas az inditas idopontig
                 while (!cancelled) {
-                    var remaining = a.launchTime - preciseNow();
-                    if (remaining <= 50) break;
+                    var remaining = a.launchTime - sNow();
+                    if (remaining <= 100) break;
 
                     var bigNum = fmtMs(Math.max(0, remaining));
                     var numParts = bigNum.split(":");
                     var msPart = numParts.pop();
                     cdCountdown.innerHTML = numParts.join(":") + ':<span style="font-size:28px;opacity:.7;">' + msPart + "</span>";
 
-                    if (remaining > 2000) await sl(50);
-                    else if (remaining > 200) await sl(5);
-                    else await sl(1);
+                    if (remaining > 1000) await sl(50);
+                    else await sl(10);
                 }
 
                 if (cancelled) break;
 
                 // Busy-wait az utolso 50ms (performance.now sub-ms pontossag)
-                while (preciseNow() < a.launchTime) {}
+                while (sNow() < a.launchTime) {}
 
                 // KULDES - csak .send() hivas, semmi mas
                 var xhrEntry = xhrList.find(function(x) { return x.idx === i; });
                 if (xhrEntry) {
                     xhrEntry.xhr.send(xhrEntry.body);
-                    var sendTime = preciseNow();
+                    var sendTime = Date.now();
                     var drift = Math.round(sendTime - a.launchTime);
                     a.sent = true;
                     log("#" + a.id + " >>> KULDES [" + fmtDate(new Date(sendTime)) + "] drift: " + (drift >= 0 ? "+" : "") + drift + "ms", "#ff0");
