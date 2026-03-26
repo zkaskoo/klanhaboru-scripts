@@ -24,6 +24,17 @@
     if(!imgBase){ try { var anyImg = document.querySelector('img[src*="innogamescdn"]'); if(anyImg){ var m = anyImg.src.match(/(https:\/\/[^\/]+\/asset\/[^\/]+\/)/); if(m) imgBase = m[1] + 'graphic/unit/'; } } catch(e){} }
     if(!imgBase){ try { var scripts = document.querySelectorAll('script'); for(var i=0;i<scripts.length;i++){ var m2 = scripts[i].textContent.match(/(https:\/\/[a-z0-9]+\.innogamescdn\.com\/asset\/[a-f0-9]+\/)/); if(m2){ imgBase = m2[1] + 'graphic/unit/'; break; } } } catch(e){} }
 
+    // Szerver ido offset kiszamitasa
+    var serverOffset = 0;
+    try {
+        if (typeof Timing !== 'undefined' && Timing.getCurrentServerTime) {
+            serverOffset = Timing.getCurrentServerTime() - Date.now();
+        } else if (typeof TribalWars !== 'undefined' && TribalWars.getGameData && TribalWars.getGameData().time_generated) {
+            // Fallback: time_generated alapjan
+            serverOffset = TribalWars.getGameData().time_generated * 1000 - Date.now();
+        }
+    } catch(e) {}
+
     var configData = null;
     var availTroops = {};
     var loaded = 0;
@@ -55,7 +66,7 @@
         var popup = window.open('', 'kh_hadvezer', 'width=820,height=620,top=60,left=60,scrollbars=yes,resizable=yes');
         if(!popup){ alert('Popup blokkolva! Engedelyezd a popupokat!'); return; }
 
-        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase});
+        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,so:serverOffset});
 
         var css = '*{box-sizing:border-box;margin:0;padding:0;}'
             + 'body{font-family:Verdana,Arial,sans-serif;font-size:12px;color:#3e2b0e;background:#f4e4bc;}'
@@ -112,6 +123,10 @@
 
         // ====== UTILITIES ======
 
+        // Szerver ido: Date.now() + offset
+        function sNow() { return Date.now() + D.so; }
+        function sDate() { return new Date(sNow()); }
+
         function sl(ms) {
             return new Promise(function(r) {
                 var s = performance.now();
@@ -153,7 +168,7 @@
         function log(msg, color) {
             var el = document.getElementById("cd_log");
             if (!el) return;
-            var t = new Date();
+            var t = sDate();
             var ts = String(t.getHours()).padStart(2,"0") + ":" + String(t.getMinutes()).padStart(2,"0") + ":" + String(t.getSeconds()).padStart(2,"0") + ":" + String(t.getMilliseconds()).padStart(3,"0");
             var line = document.createElement("div");
             line.style.color = color || "#0f0";
@@ -163,7 +178,7 @@
         }
 
         function getTodayStr() {
-            var n = new Date();
+            var n = sDate();
             return n.getFullYear() + "-" + String(n.getMonth()+1).padStart(2,"0") + "-" + String(n.getDate()).padStart(2,"0");
         }
 
@@ -186,9 +201,9 @@
                 var dp = dateStr.split("-").map(Number);
                 return new Date(dp[0], dp[1]-1, dp[2], tp[0], tp[1], tp[2]||0, msVal);
             } else {
-                var d = new Date();
+                var d = sDate();
                 d.setHours(tp[0], tp[1], tp[2]||0, msVal);
-                if (d.getTime() <= Date.now()) d.setDate(d.getDate()+1);
+                if (d.getTime() <= sNow()) d.setDate(d.getDate()+1);
                 return d;
             }
         }
@@ -235,7 +250,7 @@
             // Header
             h += '<div class="hdr">';
             h += '<span>KH Hadvezer - Tamadas Idozito</span>';
-            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + "</span>";
+            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + " | Szerver offset: " + (D.so >= 0 ? "+" : "") + D.so + "ms</span>";
             h += "</div>";
 
             h += '<div class="content">';
@@ -508,7 +523,7 @@
             atkData.sort(function(a, b) { return a.launchTime - b.launchTime; });
 
             // Elmult-e mar valamelyik
-            var now = Date.now();
+            var now = sNow();
             var pastCount = atkData.filter(function(a) { return a.launchTime < now; }).length;
             if (pastCount > 0) {
                 if (!confirm(pastCount + " tamadas inditasi ideje mar elmult! Folytatod?")) return;
@@ -677,7 +692,7 @@
 
                 // Varakozas az inditas idopontig
                 while (!cancelled) {
-                    var remaining = a.launchTime - Date.now();
+                    var remaining = a.launchTime - sNow();
                     if (remaining <= 100) break;
 
                     var bigNum = fmtMs(remaining);
@@ -692,13 +707,13 @@
                 if (cancelled) break;
 
                 // Busy-wait az utolso 100ms (max pontossag)
-                while (Date.now() < a.launchTime) {}
+                while (sNow() < a.launchTime) {}
 
                 // KULDES - csak .send() hivas, semmi mas
                 var xhrEntry = xhrList.find(function(x) { return x.idx === i; });
                 if (xhrEntry) {
                     xhrEntry.xhr.send(xhrEntry.body);
-                    var sendTime = new Date();
+                    var sendTime = sDate();
                     a.sent = true;
                     log("#" + a.id + " >>> KULDES [" + fmtDate(sendTime) + "]", "#ff0");
                     cdCountdown.innerHTML = '<span style="color:#ff0;font-size:22px;">KULDES #' + a.id + "...</span>";
@@ -732,7 +747,7 @@
 
             log("");
             log("=== KESZ ===", "#ff0");
-            var sentCount = firePromises.length;
+            var sentCount = xhrList.length;
             cdCountdown.innerHTML = '<span style="color:#0f0;font-size:22px;">' + sentCount + "/" + atkData.length + " TAMADAS ELKULDVE</span>";
 
             await sl(120000);
