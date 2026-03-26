@@ -264,6 +264,9 @@
             h += '<button id="btn_add" class="btn btn-add">+ Uj tamadas hozzaadasa</button>';
             h += "</div>";
 
+            // Legkorabbi erkezes
+            h += '<div id="earliest" class="info-bar" style="display:none;"></div>';
+
             // Osszesites
             h += '<div id="summary" class="info-bar" style="display:none;"></div>';
 
@@ -402,6 +405,9 @@
         document.getElementById("btn_start").addEventListener("click", function() { startAll(); });
         document.getElementById("btn_close").addEventListener("click", function() { window.close(); });
 
+        // Legkorabbi erkezes elo frissites (masodpercenkent)
+        setInterval(function() { recalcAll(); }, 1000);
+
         // ====== CALCULATIONS ======
 
         function recalcAll() {
@@ -463,6 +469,27 @@
                 sumEl.innerHTML = "<b>Osszes egyseg:</b> " + parts.join(" &middot; ");
             } else {
                 sumEl.style.display = "none";
+            }
+
+            // Legkorabbi erkezes szamitas
+            var earEl = document.getElementById("earliest");
+            if (hasCoords) {
+                // Leglassabb egyseg az osszes tamadason at
+                var maxSpeed = 0, slowestAll = null;
+                for (var u in totals) {
+                    if (totals[u] > 0 && D.as[u] > maxSpeed) { maxSpeed = D.as[u]; slowestAll = u; }
+                }
+                if (slowestAll) {
+                    var dist = Math.sqrt(Math.pow(cx - D.sx, 2) + Math.pow(cy - D.sy, 2));
+                    var travelSec = Math.round((dist * maxSpeed) / (D.ws * D.us) * 60);
+                    var earliest = new Date(Date.now() + travelSec * 1000);
+                    earEl.style.display = "block";
+                    earEl.innerHTML = "<b>Legkorabbi erkezes:</b> " + fmtDate(earliest) + " (" + fmtSec(travelSec) + " ut, " + (D.mn[slowestAll]||slowestAll) + ")";
+                } else {
+                    earEl.style.display = "none";
+                }
+            } else {
+                earEl.style.display = "none";
             }
         }
 
