@@ -24,29 +24,8 @@
     if(!imgBase){ try { var anyImg = document.querySelector('img[src*="innogamescdn"]'); if(anyImg){ var m = anyImg.src.match(/(https:\/\/[^\/]+\/asset\/[^\/]+\/)/); if(m) imgBase = m[1] + 'graphic/unit/'; } } catch(e){} }
     if(!imgBase){ try { var scripts = document.querySelectorAll('script'); for(var i=0;i<scripts.length;i++){ var m2 = scripts[i].textContent.match(/(https:\/\/[a-z0-9]+\.innogamescdn\.com\/asset\/[a-f0-9]+\/)/); if(m2){ imgBase = m2[1] + 'graphic/unit/'; break; } } } catch(e){} }
 
-    // Halozati kesleltetés (RTT) meres - POST-tal mint a valos tamadas
-    var networkRTT = 0;
-    var networkLatency = 0;
-    try {
-        var rtts = [];
-        for (var ri = 0; ri < 7; ri++) {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/game.php?village=' + villageId + '&screen=overview&ajax=1&_=' + Date.now() + ri, false);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            var t1 = performance.now();
-            xhr.send('h=' + game_data.csrf);
-            var t2 = performance.now();
-            rtts.push(t2 - t1);
-        }
-        // Elso ketto eldobasa (warmup), maradekbol median
-        rtts.sort(function(a,b){ return a-b; });
-        var trimmed = rtts.slice(1, -1); // legkisebb es legnagyobb eldobasa
-        var sum = 0;
-        for (var ti = 0; ti < trimmed.length; ti++) sum += trimmed[ti];
-        networkRTT = Math.round(sum / trimmed.length);
-        networkLatency = Math.round(networkRTT / 2);
-    } catch(e) { console.log('[KH Hadvezer] RTT meres hiba:', e); }
-    console.log('[KH Hadvezer] Network RTT: ' + networkRTT + 'ms, egyirany latency: ' + networkLatency + 'ms (mintak: ' + rtts.map(function(r){return Math.round(r)}).join(',') + ')');
+    // Latency mezo default: 0 (a user allitja be a tapasztalata alapjan)
+    var defaultLatency = 0;
 
     var configData = null;
     var availTroops = {};
@@ -79,7 +58,7 @@
         var popup = window.open('', 'kh_hadvezer', 'width=820,height=620,top=60,left=60,scrollbars=yes,resizable=yes');
         if(!popup){ alert('Popup blokkolva! Engedelyezd a popupokat!'); return; }
 
-        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,lat:networkLatency,rtt:networkRTT});
+        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,lat:defaultLatency});
 
         var css = '*{box-sizing:border-box;margin:0;padding:0;}'
             + 'body{font-family:Verdana,Arial,sans-serif;font-size:12px;color:#3e2b0e;background:#f4e4bc;}'
@@ -269,7 +248,7 @@
             // Header
             h += '<div class="hdr">';
             h += '<span>KH Hadvezer - Tamadas Idozito</span>';
-            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + " | Latency: " + D.lat + "ms (RTT:" + D.rtt + "ms)</span>";
+            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + "</span>";
             h += "</div>";
 
             h += '<div class="content">';
@@ -737,9 +716,10 @@
                 var xhrEntry = xhrList.find(function(x) { return x.idx === i; });
                 if (xhrEntry) {
                     xhrEntry.xhr.send(xhrEntry.body);
-                    var sendTime = sDate();
+                    var sendTime = preciseNow();
+                    var drift = Math.round(sendTime - a.launchTime);
                     a.sent = true;
-                    log("#" + a.id + " >>> KULDES [" + fmtDate(sendTime) + "]", "#ff0");
+                    log("#" + a.id + " >>> KULDES [" + fmtDate(new Date(sendTime)) + "] drift: " + (drift >= 0 ? "+" : "") + drift + "ms", "#ff0");
                     cdCountdown.innerHTML = '<span style="color:#ff0;font-size:22px;">KULDES #' + a.id + "...</span>";
                     updateInfo();
                 } else {
