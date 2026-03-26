@@ -610,7 +610,7 @@
 
             function updateInfo() {
                 var h = '<div style="text-align:center;font-size:14px;color:#ff0;font-weight:bold;margin-bottom:8px;">TAMADAS IDOZITO</div>';
-                h += '<div style="text-align:center;margin-bottom:10px;color:#aaa;">Cel: ' + atkData[0].cx + "|" + atkData[0].cy + " &mdash; " + atkData.length + " tamadas</div>";
+                h += '<div style="text-align:center;margin-bottom:10px;color:#aaa;">Cel: ' + atkData[0].cx + "|" + atkData[0].cy + " &mdash; " + atkData.length + " tamadas" + (latMedian > 0 ? " &mdash; latency: " + latMedian + "ms" : "") + "</div>";
                 h += '<table class="cd-tbl">';
                 h += "<tr><td>#</td><td>Egysegek</td><td>Erkezes</td><td>Inditas</td><td>Allapot</td></tr>";
                 atkData.forEach(function(a) {
@@ -655,7 +655,54 @@
                 if (i < atkData.length - 1) await sl(500);
             }
 
-            log("=== ELOKESZITES KESZ - VARAKOZAS INDITASRA ===", "#ff0");
+            log("=== ELOKESZITES KESZ ===", "#ff0");
+            log("");
+
+            // === LATENCY MERES (folyamatos, fetch-el, 10mp-cel kuldes elott leall) ===
+            var latSamples = [];
+            var latMedian = 0;
+            var latMeasuring = true;
+            var firstLaunch = atkData[0].launchTime;
+
+            async function measureLatency() {
+                while (latMeasuring && !cancelled) {
+                    // 10mp-cel az elso kuldes elott leallunk
+                    if (sNow() > firstLaunch - 10000) {
+                        latMeasuring = false;
+                        break;
+                    }
+                    try {
+                        var t1 = Date.now();
+                        await fetch(D.base + '/game.php?screen=overview&ajax=1&_=' + t1, { credentials: 'include', method: 'HEAD' });
+                        var rtt = Date.now() - t1;
+                        latSamples.push(rtt);
+                        // Max 20 minta, legregibbet dobjuk
+                        if (latSamples.length > 20) latSamples.shift();
+                        // Median szamitas
+                        var sorted = latSamples.slice().sort(function(a,b){ return a-b; });
+                        latMedian = Math.round(sorted[Math.floor(sorted.length / 2)] / 2);
+                    } catch(e) {}
+                    await sl(2000); // 2mp-enkent mer
+                }
+            }
+
+            log("Latency meres indul (2mp-enkent, T-10mp-ig)...", "#0ff");
+            await measureLatency();
+
+            if (latSamples.length > 0) {
+                log("Latency meres kesz: " + latSamples.length + " minta, median egyirany: " + latMedian + "ms", "#0ff");
+                log("RTT mintak: [" + latSamples.join(", ") + "]", "#0ff");
+                // LaunchTime-ok frissitese a mert latency-vel
+                var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
+                var totalComp = latMedian + latComp;
+                for (var li = 0; li < atkData.length; li++) {
+                    atkData[li].launchTime -= latMedian;
+                }
+                log("Inditas idok frissitve: -" + latMedian + "ms auto kompenzacio" + (latComp ? " + " + latComp + "ms manualis" : ""), "#ff0");
+                updateInfo();
+            } else {
+                log("Latency meres: nem volt eleg ido, manualis ertek hasznalva", "#f90");
+            }
             log("");
 
             // === XHR ELORE MEGNYITAS (0ms kuldes T=0-kor) ===
