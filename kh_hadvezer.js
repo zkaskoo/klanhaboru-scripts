@@ -689,29 +689,47 @@
             log("=== ELOKESZITES KESZ ===", "#ff0");
             log("");
 
-            // === AUTO LATENCY az elokeszites RTT-kbol ===
-            var prepRtts = [];
-            for (var pi = 0; pi < atkData.length; pi++) {
-                if (atkData[pi].prep && atkData[pi].prep.rtt) prepRtts.push(atkData[pi].prep.rtt);
-            }
+            // === FOLYAMATOS LATENCY MERES + CONNECTION WARMUP ===
+            var latSamples = [];
             var latMedian = 0;
-            if (prepRtts.length > 0) {
-                prepRtts.sort(function(a,b){ return a-b; });
-                var medianRtt = prepRtts[Math.floor(prepRtts.length / 2)];
-                latMedian = medianRtt;
-                log("RTT-k (elokeszitesbol): [" + prepRtts.join(", ") + "] ms", "#0ff");
-                log("Median RTT: " + medianRtt + "ms → kompenzacio: " + latMedian + "ms", "#0ff");
-                var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
-                var totalComp = latMedian + latComp;
-                for (var li = 0; li < atkData.length; li++) {
-                    atkData[li].launchTime -= totalComp;
-                }
-                log("Kompenzacio: -" + totalComp + "ms (" + latMedian + "ms auto" + (latComp ? " + " + latComp + "ms manualis" : "") + ")", "#ff0");
-                updateInfo();
-            }
-            log("");
+            var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
+            var firstLaunch = atkData[0].launchTime - latComp; // becsult elso kuldes idopont
 
-            // === XHR ELORE MEGNYITAS (0ms kuldes T=0-kor) ===
+            // Elokeszites RTT-k mint kiindulas
+            for (var pi = 0; pi < atkData.length; pi++) {
+                if (atkData[pi].prep && atkData[pi].prep.rtt) latSamples.push(atkData[pi].prep.rtt);
+            }
+            log("Kezdo RTT-k (elokeszitesbol): [" + latSamples.join(", ") + "] ms", "#0ff");
+
+            // Hatterben futó meres - melegen tartja a connectiont + frissiti a latency-t
+            var keepMeasuring = true;
+            async function continuousMeasure() {
+                while (keepMeasuring && !cancelled) {
+                    // T-3mp-nel leallunk
+                    if (sNow() > firstLaunch - 3000) break;
+                    try {
+                        var t1 = Date.now();
+                        var r = await fetch(D.base + '/game.php?village=' + D.vid + '&screen=overview&ajax=1&_=' + t1, {
+                            credentials: 'include'
+                        });
+                        await r.text();
+                        var rtt = Date.now() - t1;
+                        latSamples.push(rtt);
+                        if (latSamples.length > 10) latSamples.shift(); // utolso 10 minta
+                        // Median frissites
+                        var sorted = latSamples.slice().sort(function(a,b){ return a-b; });
+                        latMedian = sorted[Math.floor(sorted.length / 2)];
+                    } catch(e) {}
+                    await sl(3000);
+                }
+                keepMeasuring = false;
+            }
+
+            // Inditjuk a merest hatterben (nem await-eljuk, a countdown mellett fut)
+            var measurePromise = continuousMeasure();
+            log("Folyamatos latency meres + connection warmup indul (T-3mp-ig)...", "#0ff");
+
+            // === XHR ELORE MEGNYITAS ===
             var xhrList = [];
             for (var i = 0; i < atkData.length; i++) {
                 var a = atkData[i];
@@ -730,6 +748,31 @@
                 }
             }
             log("XHR kapcsolatok megnyitva: " + xhrList.length + " db", "#0ff");
+
+            // === VARAKOZAS A MERES BEFEJEZESERE + KOMPENZACIO ALKALMAZAS ===
+            // A countdown elott megvarjuk hogy a meres lealljon (T-3mp)
+            while (!cancelled && keepMeasuring) {
+                var remaining = firstLaunch - sNow();
+                var bigNum = fmtMs(Math.max(0, remaining));
+                var numParts = bigNum.split(":");
+                var msPart = numParts.pop();
+                cdCountdown.innerHTML = numParts.join(":") + ':<span style="font-size:28px;opacity:.7;">' + msPart + "</span>";
+                await sl(50);
+            }
+
+            // Vegso kompenzacio alkalmazasa
+            if (latSamples.length > 0) {
+                var sorted = latSamples.slice().sort(function(a,b){ return a-b; });
+                latMedian = sorted[Math.floor(sorted.length / 2)];
+                var totalComp = latMedian + latComp;
+                for (var li = 0; li < atkData.length; li++) {
+                    atkData[li].launchTime -= totalComp;
+                }
+                log("Vegso RTT mintak: [" + latSamples.map(function(r){return Math.round(r)}).join(", ") + "] ms", "#0ff");
+                log("Vegso kompenzacio: -" + totalComp + "ms (median RTT: " + latMedian + "ms" + (latComp ? " + " + latComp + "ms manualis" : "") + ")", "#ff0");
+                updateInfo();
+            }
+            log("");
 
             // === TAMADAS KULDES ===
             var xhrIdx = 0;
