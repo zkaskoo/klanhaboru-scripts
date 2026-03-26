@@ -574,8 +574,10 @@
 
         async function prepareOne(cx, cy, units) {
             var pUrl = D.base + "/game.php?village=" + D.vid + "&screen=place";
+            var t0 = Date.now();
             var pR = await fetch(pUrl, { credentials: "include" });
             var pH = await pR.text();
+            var rtt1 = Date.now() - t0;
             var doc = new DOMParser().parseFromString(pH, "text/html");
             var frm = doc.querySelector("#command-data-form");
             if (!frm) throw new Error("Rally point form nem talalhato!");
@@ -599,6 +601,7 @@
             pd.set("target_type", "coord");
             pd.set("attack", "Tamadas");
 
+            var t1 = Date.now();
             var cR = await fetch(pUrl + "&try=confirm", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -606,6 +609,7 @@
                 credentials: "include"
             });
             var cH = await cR.text();
+            var rtt2 = Date.now() - t1;
             var d2 = new DOMParser().parseFromString(cH, "text/html");
             var ch = d2.querySelector("input[name=ch]");
             if (!ch) {
@@ -626,7 +630,7 @@
             var fA = f2.getAttribute("action") || "";
             var cU = (fA && fA.indexOf("game.php") > -1) ? D.base + fA : pUrl + "&action=command";
 
-            return { url: cU, body: cd.toString(), ref: pUrl + "&try=confirm" };
+            return { url: cU, body: cd.toString(), ref: pUrl + "&try=confirm", rtt: Math.round((rtt1 + rtt2) / 2) };
         }
 
         // ====== RUN ALL (COUNTDOWN + FIRE) ======
@@ -673,7 +677,7 @@
                 log("#" + a.id + " elokeszites... (" + unitSummary(a.units) + ")");
                 try {
                     a.prep = await prepareOne(a.cx, a.cy, a.units);
-                    log("#" + a.id + " elokeszitve!", "#0f0");
+                    log("#" + a.id + " elokeszitve! (RTT: " + a.prep.rtt + "ms)", "#0f0");
                 } catch(e) {
                     a.prepErr = e.message;
                     log("#" + a.id + " HIBA: " + e.message, "#f00");
@@ -685,50 +689,25 @@
             log("=== ELOKESZITES KESZ ===", "#ff0");
             log("");
 
-            // === LATENCY MERES (folyamatos, fetch-el, 10mp-cel kuldes elott leall) ===
-            var latSamples = [];
-            var latMedian = 0;
-            var latMeasuring = true;
-            var firstLaunch = atkData[0].launchTime;
-
-            async function measureLatency() {
-                while (latMeasuring && !cancelled) {
-                    // 10mp-cel az elso kuldes elott leallunk
-                    if (sNow() > firstLaunch - 10000) {
-                        latMeasuring = false;
-                        break;
-                    }
-                    try {
-                        var t1 = Date.now();
-                        await fetch(D.base + '/game.php?screen=overview&ajax=1&_=' + t1, { credentials: 'include', method: 'HEAD' });
-                        var rtt = Date.now() - t1;
-                        latSamples.push(rtt);
-                        // Max 20 minta, legregibbet dobjuk
-                        if (latSamples.length > 20) latSamples.shift();
-                        // Median szamitas
-                        var sorted = latSamples.slice().sort(function(a,b){ return a-b; });
-                        latMedian = Math.round(sorted[Math.floor(sorted.length / 2)] / 2);
-                    } catch(e) {}
-                    await sl(2000); // 2mp-enkent mer
-                }
+            // === AUTO LATENCY az elokeszites RTT-kbol ===
+            var prepRtts = [];
+            for (var pi = 0; pi < atkData.length; pi++) {
+                if (atkData[pi].prep && atkData[pi].prep.rtt) prepRtts.push(atkData[pi].prep.rtt);
             }
-
-            log("Latency meres indul (2mp-enkent, T-10mp-ig)...", "#0ff");
-            await measureLatency();
-
-            if (latSamples.length > 0) {
-                log("Latency meres kesz: " + latSamples.length + " minta, median egyirany: " + latMedian + "ms", "#0ff");
-                log("RTT mintak: [" + latSamples.join(", ") + "]", "#0ff");
-                // LaunchTime-ok frissitese a mert latency-vel
+            var latMedian = 0;
+            if (prepRtts.length > 0) {
+                prepRtts.sort(function(a,b){ return a-b; });
+                var medianRtt = prepRtts[Math.floor(prepRtts.length / 2)];
+                latMedian = Math.round(medianRtt / 2);
+                log("RTT-k (elokeszitesbol): [" + prepRtts.join(", ") + "] ms", "#0ff");
+                log("Median RTT: " + medianRtt + "ms → egyirany: " + latMedian + "ms", "#0ff");
                 var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
                 var totalComp = latMedian + latComp;
                 for (var li = 0; li < atkData.length; li++) {
-                    atkData[li].launchTime -= latMedian;
+                    atkData[li].launchTime -= totalComp;
                 }
-                log("Inditas idok frissitve: -" + latMedian + "ms auto kompenzacio" + (latComp ? " + " + latComp + "ms manualis" : ""), "#ff0");
+                log("Kompenzacio: -" + totalComp + "ms (" + latMedian + "ms auto" + (latComp ? " + " + latComp + "ms manualis" : "") + ")", "#ff0");
                 updateInfo();
-            } else {
-                log("Latency meres: nem volt eleg ido, manualis ertek hasznalva", "#f90");
             }
             log("");
 
