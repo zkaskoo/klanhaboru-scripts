@@ -24,24 +24,29 @@
     if(!imgBase){ try { var anyImg = document.querySelector('img[src*="innogamescdn"]'); if(anyImg){ var m = anyImg.src.match(/(https:\/\/[^\/]+\/asset\/[^\/]+\/)/); if(m) imgBase = m[1] + 'graphic/unit/'; } } catch(e){} }
     if(!imgBase){ try { var scripts = document.querySelectorAll('script'); for(var i=0;i<scripts.length;i++){ var m2 = scripts[i].textContent.match(/(https:\/\/[a-z0-9]+\.innogamescdn\.com\/asset\/[a-f0-9]+\/)/); if(m2){ imgBase = m2[1] + 'graphic/unit/'; break; } } } catch(e){} }
 
-    // Halozati kesleltetés (RTT) meres - 5x szinkron XHR, median
+    // Halozati kesleltetés (RTT) meres - POST-tal mint a valos tamadas
     var networkRTT = 0;
-    var networkLatency = 0; // egyirany = RTT/2
+    var networkLatency = 0;
     try {
         var rtts = [];
-        for (var ri = 0; ri < 5; ri++) {
+        for (var ri = 0; ri < 7; ri++) {
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', '/interface.php?func=get_config&_=' + Date.now() + ri, false);
+            xhr.open('POST', '/game.php?village=' + villageId + '&screen=overview&ajax=1&_=' + Date.now() + ri, false);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
             var t1 = performance.now();
-            xhr.send();
+            xhr.send('h=' + game_data.csrf);
             var t2 = performance.now();
-            rtts.push(Math.round(t2 - t1));
+            rtts.push(t2 - t1);
         }
+        // Elso ketto eldobasa (warmup), maradekbol median
         rtts.sort(function(a,b){ return a-b; });
-        networkRTT = rtts[Math.floor(rtts.length / 2)]; // median
+        var trimmed = rtts.slice(1, -1); // legkisebb es legnagyobb eldobasa
+        var sum = 0;
+        for (var ti = 0; ti < trimmed.length; ti++) sum += trimmed[ti];
+        networkRTT = Math.round(sum / trimmed.length);
         networkLatency = Math.round(networkRTT / 2);
-    } catch(e) {}
-    console.log('[KH Hadvezer] Network RTT: ' + networkRTT + 'ms, egyirany latency: ' + networkLatency + 'ms (mintak: ' + rtts.join(',') + ')');
+    } catch(e) { console.log('[KH Hadvezer] RTT meres hiba:', e); }
+    console.log('[KH Hadvezer] Network RTT: ' + networkRTT + 'ms, egyirany latency: ' + networkLatency + 'ms (mintak: ' + rtts.map(function(r){return Math.round(r)}).join(',') + ')');
 
     var configData = null;
     var availTroops = {};
@@ -131,11 +136,15 @@
 
         // ====== UTILITIES ======
 
-        // Szerver ido becslese: helyi ido + egyirany latency kompenzacio
-        // A kuldes D.lat ms-sel korabban tortenik, hogy a szerverre
-        // pont a megfelelo pillanatban erkezzen meg
+        // Ido fuggvenyek
         function sNow() { return Date.now(); }
         function sDate() { return new Date(); }
+
+        // Precizios ido: performance.now() alapu, sub-ms pontossag
+        // Egyszer kalibralva Date.now()-hoz
+        var _perfBase = performance.now();
+        var _dateBase = Date.now();
+        function preciseNow() { return _dateBase + (performance.now() - _perfBase); }
 
         function sl(ms) {
             return new Promise(function(r) {
@@ -272,7 +281,7 @@
             h += '<span style="color:#c8a86e;">|</span>';
             h += '<span style="font-size:11px;">Auto eltolas: <input id="ms_offset" type="number" value="200" min="0" max="5000" step="50" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
             h += '<span style="color:#c8a86e;">|</span>';
-            h += '<span style="font-size:11px;">Latency korr.: <input id="lat_comp" type="number" value="' + D.lat + '" min="0" max="1000" step="5" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
+            h += '<span style="font-size:11px;">Latency korr.: <input id="lat_comp" type="number" value="' + D.lat + '" min="-500" max="1000" step="1" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
             h += "</div>";
 
             // Tamadas lista
@@ -537,7 +546,7 @@
             atkData.sort(function(a, b) { return a.launchTime - b.launchTime; });
 
             // Elmult-e mar valamelyik
-            var now = sNow();
+            var now = preciseNow();
             var pastCount = atkData.filter(function(a) { return a.launchTime < now; }).length;
             if (pastCount > 0) {
                 if (!confirm(pastCount + " tamadas inditasi ideje mar elmult! Folytatod?")) return;
@@ -706,22 +715,23 @@
 
                 // Varakozas az inditas idopontig
                 while (!cancelled) {
-                    var remaining = a.launchTime - sNow();
-                    if (remaining <= 100) break;
+                    var remaining = a.launchTime - preciseNow();
+                    if (remaining <= 50) break;
 
-                    var bigNum = fmtMs(remaining);
+                    var bigNum = fmtMs(Math.max(0, remaining));
                     var numParts = bigNum.split(":");
                     var msPart = numParts.pop();
                     cdCountdown.innerHTML = numParts.join(":") + ':<span style="font-size:28px;opacity:.7;">' + msPart + "</span>";
 
-                    if (remaining > 1000) await sl(50);
-                    else await sl(10);
+                    if (remaining > 2000) await sl(50);
+                    else if (remaining > 200) await sl(5);
+                    else await sl(1);
                 }
 
                 if (cancelled) break;
 
-                // Busy-wait az utolso 100ms (max pontossag)
-                while (sNow() < a.launchTime) {}
+                // Busy-wait az utolso 50ms (performance.now sub-ms pontossag)
+                while (preciseNow() < a.launchTime) {}
 
                 // KULDES - csak .send() hivas, semmi mas
                 var xhrEntry = xhrList.find(function(x) { return x.idx === i; });
