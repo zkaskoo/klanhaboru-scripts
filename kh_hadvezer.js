@@ -24,16 +24,63 @@
     if(!imgBase){ try { var anyImg = document.querySelector('img[src*="innogamescdn"]'); if(anyImg){ var m = anyImg.src.match(/(https:\/\/[^\/]+\/asset\/[^\/]+\/)/); if(m) imgBase = m[1] + 'graphic/unit/'; } } catch(e){} }
     if(!imgBase){ try { var scripts = document.querySelectorAll('script'); for(var i=0;i<scripts.length;i++){ var m2 = scripts[i].textContent.match(/(https:\/\/[a-z0-9]+\.innogamescdn\.com\/asset\/[a-f0-9]+\/)/); if(m2){ imgBase = m2[1] + 'graphic/unit/'; break; } } } catch(e){} }
 
-    // Szerver ido offset kiszamitasa
+    // Szerver ido offset kiszamitasa (tobbszoros meres az pontossagert)
     var serverOffset = 0;
+    var offsetSource = 'none';
     try {
-        if (typeof Timing !== 'undefined' && Timing.getCurrentServerTime) {
-            serverOffset = Timing.getCurrentServerTime() - Date.now();
-        } else if (typeof TribalWars !== 'undefined' && TribalWars.getGameData && TribalWars.getGameData().time_generated) {
-            // Fallback: time_generated alapjan
-            serverOffset = TribalWars.getGameData().time_generated * 1000 - Date.now();
+        // 1. Timing objektum (legpontosabb)
+        if (typeof Timing !== 'undefined') {
+            if (Timing.getCurrentServerTime) {
+                serverOffset = Timing.getCurrentServerTime() - Date.now();
+                offsetSource = 'Timing.getCurrentServerTime';
+            } else if (Timing.offset_to_server !== undefined) {
+                serverOffset = Timing.offset_to_server;
+                offsetSource = 'Timing.offset_to_server';
+            } else if (Timing.serverOffset !== undefined) {
+                serverOffset = Timing.serverOffset;
+                offsetSource = 'Timing.serverOffset';
+            }
+        }
+        // 2. server_utc_diff globalis valtozo
+        if (serverOffset === 0 && typeof server_utc_diff === 'number') {
+            serverOffset = server_utc_diff * 1000;
+            offsetSource = 'server_utc_diff';
+        }
+        // 3. TribalWars objektum
+        if (serverOffset === 0 && typeof TribalWars !== 'undefined' && TribalWars.getGameData) {
+            var gd = TribalWars.getGameData();
+            if (gd.time_generated) {
+                serverOffset = gd.time_generated * 1000 - Date.now();
+                offsetSource = 'TribalWars.time_generated';
+            }
         }
     } catch(e) {}
+
+    // Fallback: szinkron XHR-rel merve a szerver Date headeret (tobbszoros meres)
+    if (serverOffset === 0) {
+        try {
+            var offsets = [];
+            for (var oi = 0; oi < 5; oi++) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('HEAD', '/game.php?screen=overview&ajax=1&_=' + Date.now(), false);
+                var t1 = Date.now();
+                xhr.send();
+                var t2 = Date.now();
+                var sd = xhr.getResponseHeader('Date');
+                if (sd) {
+                    var rtt = t2 - t1;
+                    var serverMs = new Date(sd).getTime();
+                    offsets.push(serverMs - t1 - Math.round(rtt / 2));
+                }
+            }
+            if (offsets.length > 0) {
+                offsets.sort(function(a,b){ return a-b; });
+                serverOffset = offsets[Math.floor(offsets.length / 2)]; // median
+                offsetSource = 'HTTP/' + offsets.length + 'x';
+            }
+        } catch(e) {}
+    }
+    console.log('[KH Hadvezer] Server offset: ' + serverOffset + 'ms (source: ' + offsetSource + ')');
 
     var configData = null;
     var availTroops = {};
@@ -66,7 +113,7 @@
         var popup = window.open('', 'kh_hadvezer', 'width=820,height=620,top=60,left=60,scrollbars=yes,resizable=yes');
         if(!popup){ alert('Popup blokkolva! Engedelyezd a popupokat!'); return; }
 
-        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,so:serverOffset});
+        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,so:serverOffset,osrc:offsetSource});
 
         var css = '*{box-sizing:border-box;margin:0;padding:0;}'
             + 'body{font-family:Verdana,Arial,sans-serif;font-size:12px;color:#3e2b0e;background:#f4e4bc;}'
@@ -250,7 +297,7 @@
             // Header
             h += '<div class="hdr">';
             h += '<span>KH Hadvezer - Tamadas Idozito</span>';
-            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + " | Szerver offset: " + (D.so >= 0 ? "+" : "") + D.so + "ms</span>";
+            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + " | Offset: " + (D.so >= 0 ? "+" : "") + D.so + "ms (" + D.osrc + ")</span>";
             h += "</div>";
 
             h += '<div class="content">';
