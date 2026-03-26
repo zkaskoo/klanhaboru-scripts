@@ -24,63 +24,24 @@
     if(!imgBase){ try { var anyImg = document.querySelector('img[src*="innogamescdn"]'); if(anyImg){ var m = anyImg.src.match(/(https:\/\/[^\/]+\/asset\/[^\/]+\/)/); if(m) imgBase = m[1] + 'graphic/unit/'; } } catch(e){} }
     if(!imgBase){ try { var scripts = document.querySelectorAll('script'); for(var i=0;i<scripts.length;i++){ var m2 = scripts[i].textContent.match(/(https:\/\/[a-z0-9]+\.innogamescdn\.com\/asset\/[a-f0-9]+\/)/); if(m2){ imgBase = m2[1] + 'graphic/unit/'; break; } } } catch(e){} }
 
-    // Szerver ido offset kiszamitasa (tobbszoros meres az pontossagert)
-    var serverOffset = 0;
-    var offsetSource = 'none';
+    // Halozati kesleltetés (RTT) meres - 5x szinkron XHR, median
+    var networkRTT = 0;
+    var networkLatency = 0; // egyirany = RTT/2
     try {
-        // 1. Timing objektum (legpontosabb)
-        if (typeof Timing !== 'undefined') {
-            if (Timing.getCurrentServerTime) {
-                serverOffset = Timing.getCurrentServerTime() - Date.now();
-                offsetSource = 'Timing.getCurrentServerTime';
-            } else if (Timing.offset_to_server !== undefined) {
-                serverOffset = Timing.offset_to_server;
-                offsetSource = 'Timing.offset_to_server';
-            } else if (Timing.serverOffset !== undefined) {
-                serverOffset = Timing.serverOffset;
-                offsetSource = 'Timing.serverOffset';
-            }
+        var rtts = [];
+        for (var ri = 0; ri < 5; ri++) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/interface.php?func=get_config&_=' + Date.now() + ri, false);
+            var t1 = performance.now();
+            xhr.send();
+            var t2 = performance.now();
+            rtts.push(Math.round(t2 - t1));
         }
-        // 2. server_utc_diff globalis valtozo
-        if (serverOffset === 0 && typeof server_utc_diff === 'number') {
-            serverOffset = server_utc_diff * 1000;
-            offsetSource = 'server_utc_diff';
-        }
-        // 3. TribalWars objektum
-        if (serverOffset === 0 && typeof TribalWars !== 'undefined' && TribalWars.getGameData) {
-            var gd = TribalWars.getGameData();
-            if (gd.time_generated) {
-                serverOffset = gd.time_generated * 1000 - Date.now();
-                offsetSource = 'TribalWars.time_generated';
-            }
-        }
+        rtts.sort(function(a,b){ return a-b; });
+        networkRTT = rtts[Math.floor(rtts.length / 2)]; // median
+        networkLatency = Math.round(networkRTT / 2);
     } catch(e) {}
-
-    // Fallback: szinkron XHR-rel merve a szerver Date headeret (tobbszoros meres)
-    if (serverOffset === 0) {
-        try {
-            var offsets = [];
-            for (var oi = 0; oi < 5; oi++) {
-                var xhr = new XMLHttpRequest();
-                xhr.open('HEAD', '/game.php?screen=overview&ajax=1&_=' + Date.now(), false);
-                var t1 = Date.now();
-                xhr.send();
-                var t2 = Date.now();
-                var sd = xhr.getResponseHeader('Date');
-                if (sd) {
-                    var rtt = t2 - t1;
-                    var serverMs = new Date(sd).getTime();
-                    offsets.push(serverMs - t1 - Math.round(rtt / 2));
-                }
-            }
-            if (offsets.length > 0) {
-                offsets.sort(function(a,b){ return a-b; });
-                serverOffset = offsets[Math.floor(offsets.length / 2)]; // median
-                offsetSource = 'HTTP/' + offsets.length + 'x';
-            }
-        } catch(e) {}
-    }
-    console.log('[KH Hadvezer] Server offset: ' + serverOffset + 'ms (source: ' + offsetSource + ')');
+    console.log('[KH Hadvezer] Network RTT: ' + networkRTT + 'ms, egyirany latency: ' + networkLatency + 'ms (mintak: ' + rtts.join(',') + ')');
 
     var configData = null;
     var availTroops = {};
@@ -113,7 +74,7 @@
         var popup = window.open('', 'kh_hadvezer', 'width=820,height=620,top=60,left=60,scrollbars=yes,resizable=yes');
         if(!popup){ alert('Popup blokkolva! Engedelyezd a popupokat!'); return; }
 
-        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,so:serverOffset,osrc:offsetSource});
+        var D = JSON.stringify({sx:sx,sy:sy,vid:villageId,base:baseUrl,ws:configData.ws,us:configData.us,eg:egysegek,mn:mn,as:as,av:availTroops,img:imgBase,lat:networkLatency,rtt:networkRTT});
 
         var css = '*{box-sizing:border-box;margin:0;padding:0;}'
             + 'body{font-family:Verdana,Arial,sans-serif;font-size:12px;color:#3e2b0e;background:#f4e4bc;}'
@@ -170,9 +131,11 @@
 
         // ====== UTILITIES ======
 
-        // Szerver ido: Date.now() + offset
-        function sNow() { return Date.now() + D.so; }
-        function sDate() { return new Date(sNow()); }
+        // Szerver ido becslese: helyi ido + egyirany latency kompenzacio
+        // A kuldes D.lat ms-sel korabban tortenik, hogy a szerverre
+        // pont a megfelelo pillanatban erkezzen meg
+        function sNow() { return Date.now(); }
+        function sDate() { return new Date(); }
 
         function sl(ms) {
             return new Promise(function(r) {
@@ -297,7 +260,7 @@
             // Header
             h += '<div class="hdr">';
             h += '<span>KH Hadvezer - Tamadas Idozito</span>';
-            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + " | Offset: " + (D.so >= 0 ? "+" : "") + D.so + "ms (" + D.osrc + ")</span>";
+            h += '<span class="village">Falu: ' + D.sx + "|" + D.sy + " | Latency: " + D.lat + "ms (RTT:" + D.rtt + "ms)</span>";
             h += "</div>";
 
             h += '<div class="content">';
@@ -308,6 +271,8 @@
             h += ' | <input id="ti_y" type="number" class="inp" style="width:55px;text-align:center;" placeholder="y"></span>';
             h += '<span style="color:#c8a86e;">|</span>';
             h += '<span style="font-size:11px;">Auto eltolas: <input id="ms_offset" type="number" value="200" min="0" max="5000" step="50" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
+            h += '<span style="color:#c8a86e;">|</span>';
+            h += '<span style="font-size:11px;">Latency korr.: <input id="lat_comp" type="number" value="' + D.lat + '" min="0" max="1000" step="5" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
             h += "</div>";
 
             // Tamadas lista
@@ -554,7 +519,9 @@
                 var tc = calcTravel(cx, cy, units);
                 if (!tc) { errors.push("#" + id + ": nem szamolhato menetido"); return; }
 
-                var launchTime = arrival.getTime() - tc.travelSec * 1000;
+                // Latency kompenzacio: korabban kuldjuk el, hogy a szerverre pontosan erkezzen
+                var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
+                var launchTime = arrival.getTime() - tc.travelSec * 1000 - latComp;
 
                 atkData.push({
                     id: id, cx: cx, cy: cy, units: units,
