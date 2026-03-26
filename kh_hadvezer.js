@@ -698,9 +698,9 @@
             if (prepRtts.length > 0) {
                 prepRtts.sort(function(a,b){ return a-b; });
                 var medianRtt = prepRtts[Math.floor(prepRtts.length / 2)];
-                latMedian = Math.round(medianRtt / 2);
+                latMedian = medianRtt;
                 log("RTT-k (elokeszitesbol): [" + prepRtts.join(", ") + "] ms", "#0ff");
-                log("Median RTT: " + medianRtt + "ms → egyirany: " + latMedian + "ms", "#0ff");
+                log("Median RTT: " + medianRtt + "ms → kompenzacio: " + latMedian + "ms", "#0ff");
                 var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
                 var totalComp = latMedian + latComp;
                 for (var li = 0; li < atkData.length; li++) {
