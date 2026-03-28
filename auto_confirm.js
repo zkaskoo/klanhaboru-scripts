@@ -112,29 +112,32 @@
     ph += '}';
 
     // Farm gombok keresese a fo ablakban (A, B, vagy mindketto)
+    // farmGod gombokat preferalja a sima farm gombok felett
     ph += 'function findFarmButtons(){';
     ph += '  var tpl=document.getElementById("af_tpl").value;';
-    ph += '  var labels=[];';
-    ph += '  if(tpl==="a"||tpl==="ab")labels.push({letter:"a",cls:"farm_icon_a"});';
-    ph += '  if(tpl==="b"||tpl==="ab")labels.push({letter:"b",cls:"farm_icon_b"});';
     ph += '  var aB=[];';
     ph += '  try{';
     ph += '    var doc=gw.document;';
-    ph += '    for(var li=0;li<labels.length;li++){';
-    ph += '      var L=labels[li].letter.toUpperCase();';
-    ph += '      var cls=labels[li].cls;';
-    // farmGod + eredeti gombok egyutt
-    ph += '      var s1=doc.querySelectorAll("a."+cls+",a.farmGod_icon."+cls);';
-    ph += '      for(var i=0;i<s1.length;i++)aB.push(s1[i]);';
-    ph += '      if(!s1.length){var s2=doc.querySelectorAll("a[class*=farm]");for(var i=0;i<s2.length;i++){if(s2[i].textContent.trim()===L)aB.push(s2[i]);}}';
+    // Eloszor nezzuk van-e farmGod gomb az oldalon
+    ph += '    var hasFarmGod=doc.querySelector("a.farmGod_icon")!==null;';
+    ph += '    var selector="";';
+    ph += '    if(hasFarmGod){';
+    // farmGod gombok - CSAK azokat kattintjuk, sima farmot NEM
+    ph += '      if(tpl==="a")selector="a.farmGod_icon.farm_icon_a";';
+    ph += '      else if(tpl==="b")selector="a.farmGod_icon.farm_icon_b";';
+    ph += '      else selector="a.farmGod_icon.farm_icon_a,a.farmGod_icon.farm_icon_b";';
+    ph += '    }else{';
+    // Nincs farmGod, sima farm gombok
+    ph += '      if(tpl==="a")selector="a.farm_icon_a";';
+    ph += '      else if(tpl==="b")selector="a.farm_icon_b";';
+    ph += '      else selector="a.farm_icon_a,a.farm_icon_b";';
     ph += '    }';
-    // Duplikatum szures
-    ph += '    var unique=[];var seen=new Set();';
-    ph += '    for(var i=0;i<aB.length;i++){if(!seen.has(aB[i])){seen.add(aB[i]);unique.push(aB[i]);}}';
-    // Filter disabled
+    ph += '    var btns=doc.querySelectorAll(selector);';
+    ph += '    for(var i=0;i<btns.length;i++)aB.push(btns[i]);';
+    // Filter disabled/hidden
     ph += '    var active=[];';
-    ph += '    for(var i=0;i<unique.length;i++){';
-    ph += '      var btn=unique[i];';
+    ph += '    for(var i=0;i<aB.length;i++){';
+    ph += '      var btn=aB[i];';
     ph += '      var st=gw.getComputedStyle(btn);';
     ph += '      if(st.display==="none"||st.visibility==="hidden")continue;';
     ph += '      if(btn.classList.contains("disabled")||btn.classList.contains("clicked"))continue;';
