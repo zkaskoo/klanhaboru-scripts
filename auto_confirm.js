@@ -123,14 +123,18 @@
     ph += '    for(var li=0;li<labels.length;li++){';
     ph += '      var L=labels[li].letter.toUpperCase();';
     ph += '      var cls=labels[li].cls;';
-    ph += '      var s1=doc.querySelectorAll("a."+cls);';
+    // farmGod + eredeti gombok egyutt
+    ph += '      var s1=doc.querySelectorAll("a."+cls+",a.farmGod_icon."+cls);';
     ph += '      for(var i=0;i<s1.length;i++)aB.push(s1[i]);';
     ph += '      if(!s1.length){var s2=doc.querySelectorAll("a[class*=farm]");for(var i=0;i<s2.length;i++){if(s2[i].textContent.trim()===L)aB.push(s2[i]);}}';
     ph += '    }';
+    // Duplikatum szures
+    ph += '    var unique=[];var seen=new Set();';
+    ph += '    for(var i=0;i<aB.length;i++){if(!seen.has(aB[i])){seen.add(aB[i]);unique.push(aB[i]);}}';
     // Filter disabled
     ph += '    var active=[];';
-    ph += '    for(var i=0;i<aB.length;i++){';
-    ph += '      var btn=aB[i];';
+    ph += '    for(var i=0;i<unique.length;i++){';
+    ph += '      var btn=unique[i];';
     ph += '      var st=gw.getComputedStyle(btn);';
     ph += '      if(st.display==="none"||st.visibility==="hidden")continue;';
     ph += '      if(btn.classList.contains("disabled")||btn.classList.contains("clicked"))continue;';
