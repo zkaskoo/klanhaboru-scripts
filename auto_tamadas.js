@@ -107,32 +107,36 @@
     // A gombok megkeresese a HTML-ben
     ph += 'function findAButtons(doc){';
     ph += '  var results=[];';
-    ph += '  var btns=doc.querySelectorAll(".farm_icon_a:not(.disabled):not(.farm_icon_disabled)");';
-    ph += '  if(!btns.length)btns=doc.querySelectorAll("a[class*=farm_icon_a]:not(.disabled)");';
-    ph += '  if(!btns.length)btns=doc.querySelectorAll("a[href*=\\"template_id=0\\"]");';
+    ph += '  var btns=doc.querySelectorAll(".farm_icon_a:not(.disabled):not(.farm_icon_disabled),.farm_icon_b:not(.disabled):not(.farm_icon_disabled)");';
+    ph += '  if(!btns.length)btns=doc.querySelectorAll("a[class*=farm_icon_a]:not(.disabled),a[class*=farm_icon_b]:not(.disabled)");';
     ph += '  for(var i=0;i<btns.length;i++){';
     ph += '    var b=btns[i];';
-    ph += '    var oc=b.getAttribute("onclick")||"";';
-    ph += '    var href=b.getAttribute("href")||"";';
+    ph += '    var type=b.classList.contains("farm_icon_b")?"B":"A";';
     ph += '    var target=null;';
+    // farmGod formatum: data-origin, data-target, data-template
+    ph += '    var dTarget=b.getAttribute("data-target");';
+    ph += '    var dOrigin=b.getAttribute("data-origin");';
+    ph += '    var dTemplate=b.getAttribute("data-template");';
+    ph += '    if(dTarget&&dTemplate){target={src:dOrigin||String(D.vid),id:dTarget,tpl:dTemplate,type:type};}';
     // sendUnits formatum: Accountmanager.farm.sendUnits(this, targetId, templateId)
+    ph += '    if(!target){var oc=b.getAttribute("onclick")||"";';
     ph += '    var ms=oc.match(/sendUnits\\s*\\(\\s*this\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)/);';
-    ph += '    if(ms){target={src:String(D.vid),id:ms[1],tpl:ms[2]};}';
+    ph += '    if(ms){target={src:String(D.vid),id:ms[1],tpl:ms[2],type:type};}';
     // Regi formatum: farm(source, target, template)
-    ph += '    if(!target){var m=oc.match(/farm\\s*\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)/);if(m){target={src:m[1],id:m[2],tpl:m[3]};}}';
+    ph += '    if(!target){var m=oc.match(/farm\\s*\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)/);if(m){target={src:m[1],id:m[2],tpl:m[3],type:type};}}';
     // href-bol kinyeres
+    ph += '    var href=b.getAttribute("href")||"";';
     ph += '    if(!target&&href){';
     ph += '      var tm=href.match(/target(?:_id)?=(\\d+)/);';
-    ph += '      if(tm)target={src:String(D.vid),id:tm[1],tpl:"0"};';
-    ph += '    }';
-    // data attributumok
+    ph += '      if(tm)target={src:String(D.vid),id:tm[1],tpl:"0",type:type};';
+    ph += '    }}';
+    // data attributumok fallback
     ph += '    if(!target){';
-    ph += '      var did=b.getAttribute("data-target");';
-    ph += '      if(!did){var tr=b.closest("tr");if(tr)did=tr.getAttribute("data-village-id");}';
-    ph += '      if(did)target={src:String(D.vid),id:did,tpl:"0"};';
+    ph += '      if(dTarget)target={src:String(D.vid),id:dTarget,tpl:"0",type:type};';
+    ph += '      else{var tr=b.closest("tr");if(tr){var did=tr.getAttribute("data-village-id");if(did)target={src:String(D.vid),id:did,tpl:"0",type:type};}}';
     ph += '    }';
     // class-bol village id
-    ph += '    if(!target){var cm=b.className.match(/farm_village_(\\d+)/);if(cm)target={src:String(D.vid),id:cm[1],tpl:"0"};}';
+    ph += '    if(!target){var cm=b.className.match(/farm_village_(\\d+)/);if(cm)target={src:String(D.vid),id:cm[1],tpl:"0",type:type};}';
     ph += '    if(target)results.push(target);';
     ph += '  }';
     // h (CSRF) token kinyerese
@@ -178,7 +182,7 @@
     ph += '  var doc;';
     ph += '  try{doc=await fetchPage(url);}catch(e){log("  Oldal betoltes hiba: "+e.message,"#f00");return{sent:0,noUnits:false};}';
     ph += '  var data=findAButtons(doc);';
-    ph += '  if(!data.targets.length){log("  Nincs aktiv A gomb ezen az oldalon.","#999");return{sent:0,noUnits:false};}';
+    ph += '  if(!data.targets.length){log("  Nincs aktiv A/B gomb ezen az oldalon.","#999");return{sent:0,noUnits:false};}';
     ph += '  if(!data.h)log("  FIGYELEM: h token nem talalhato, megprobalom nelkule.","#f90");';
     ph += '  log("  "+data.targets.length+" cel talalhato.");';
     ph += '  var sent=0;';
@@ -192,7 +196,7 @@
     ph += '      }';
     ph += '      sent++;totalSent++;';
     ph += '      document.getElementById("af_total").textContent=String(totalSent);';
-    ph += '      log("  [A] Tamadas #"+totalSent+" -> falu "+data.targets[i].id);';
+    ph += '      log("  ["+(data.targets[i].type||"A")+"] Tamadas #"+totalSent+" -> falu "+data.targets[i].id);';
     ph += '    }catch(e){log("  Kuldes hiba: "+e.message,"#f00");}';
     ph += '    await sl(rn(Math.max(100,delay-100),delay+200));';
     ph += '  }';
