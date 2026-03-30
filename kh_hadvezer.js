@@ -730,7 +730,18 @@
                     }
                     // Varakozas az ido fuggvenyeben
                     var waitMs = timeLeft > 30000 ? 10000 : timeLeft > 10000 ? 3000 : 500;
-                    await sl(waitMs);
+                    // Varakozas countdown frissitessel
+                    var waitEnd = sNow() + waitMs;
+                    while (sNow() < waitEnd && !cancelled) {
+                        var rem = firstLaunchEst - sNow();
+                        if (rem > 0) {
+                            var bigNum = fmtMs(rem);
+                            var numParts = bigNum.split(":");
+                            var msPart = numParts.pop();
+                            cdCountdown.innerHTML = numParts.join(":") + ':<span style="font-size:28px;opacity:.7;">' + msPart + "</span>";
+                        }
+                        await sl(50);
+                    }
                     if (cancelled) break;
                     var allDone = true;
                     for (var ri = 0; ri < atkData.length; ri++) {
