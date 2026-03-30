@@ -251,6 +251,8 @@
             h += '<span>Cel: <input id="ti_x" type="number" class="inp" style="width:55px;text-align:center;" placeholder="x">';
             h += ' | <input id="ti_y" type="number" class="inp" style="width:55px;text-align:center;" placeholder="y"></span>';
             h += '<span style="color:#c8a86e;">|</span>';
+            h += '<span style="font-size:11px;">Mod: <select id="time_mode" class="inp" style="font-size:11px;padding:1px 3px;"><option value="erkezes">Erkezes</option><option value="inditas">Inditas</option></select></span>';
+            h += '<span style="color:#c8a86e;">|</span>';
             h += '<span style="font-size:11px;">Auto eltolas: <input id="ms_offset" type="number" value="200" min="0" max="5000" step="50" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
             h += '<span style="color:#c8a86e;">|</span>';
             h += '<span style="font-size:11px;">Latency korr.: <input id="lat_comp" type="number" value="' + D.lat + '" min="-500" max="1000" step="1" class="inp" style="width:55px;text-align:center;font-size:11px;"> ms</span>';
@@ -370,7 +372,7 @@
             }
 
             h += '<div class="arr-row">';
-            h += '<span>Erkezes:</span>';
+            h += '<span class="time-label">Erkezes:</span>';
             h += '<input id="atk_' + id + '_date" type="date" value="' + dateVal + '" class="inp" style="width:125px;font-size:11px;">';
             h += '<input id="atk_' + id + '_time" type="text" value="' + timeVal + '" placeholder="oo:pp:mm:ezred" class="inp" style="width:115px;text-align:center;font-size:11px;">';
             h += '<span id="atk_' + id + '_info" class="atk-info"></span>';
@@ -404,6 +406,16 @@
         document.getElementById("btn_add").addEventListener("click", function() { addAttack(true); });
         document.getElementById("btn_start").addEventListener("click", function() { startAll(); });
         document.getElementById("btn_close").addEventListener("click", function() { window.close(); });
+
+        // Mod valtas: labelek frissitese
+        document.getElementById("time_mode").addEventListener("change", function() {
+            var mode = this.value;
+            var labels = document.querySelectorAll(".time-label");
+            for (var i = 0; i < labels.length; i++) {
+                labels[i].textContent = mode === "inditas" ? "Inditas:" : "Erkezes:";
+            }
+            recalcAll();
+        });
 
         // Legkorabbi erkezes elo frissites (masodpercenkent)
         setInterval(function() { recalcAll(); }, 1000);
@@ -441,13 +453,19 @@
                 var dateStr = document.getElementById("atk_" + id + "_date").value;
                 var timeStr = document.getElementById("atk_" + id + "_time").value.trim();
 
+                var mode = document.getElementById("time_mode").value;
                 var info = (D.mn[tc.slowest]||tc.slowest) + " | Ut: " + fmtSec(tc.travelSec);
 
                 if (timeStr) {
-                    var arrival = parseArrival(dateStr, timeStr);
-                    if (arrival) {
-                        var launchDate = new Date(arrival.getTime() - tc.travelSec * 1000);
-                        info += " | Inditas: " + fmtDate(launchDate);
+                    var parsedTime = parseArrival(dateStr, timeStr);
+                    if (parsedTime) {
+                        if (mode === "inditas") {
+                            var arrivalDate = new Date(parsedTime.getTime() + tc.travelSec * 1000);
+                            info += " | Erkezes: " + fmtDate(arrivalDate);
+                        } else {
+                            var launchDate = new Date(parsedTime.getTime() - tc.travelSec * 1000);
+                            info += " | Inditas: " + fmtDate(launchDate);
+                        }
                     }
                 }
 
@@ -471,9 +489,10 @@
                 sumEl.style.display = "none";
             }
 
-            // Legkorabbi erkezes szamitas
+            // Legkorabbi erkezes szamitas (csak erkezes modban)
             var earEl = document.getElementById("earliest");
-            if (hasCoords) {
+            var curMode = document.getElementById("time_mode").value;
+            if (hasCoords && curMode === "erkezes") {
                 // Leglassabb egyseg az osszes tamadason at
                 var maxSpeed = 0, slowestAll = null;
                 for (var u in totals) {
@@ -519,18 +538,26 @@
 
                 var dateStr = document.getElementById("atk_" + id + "_date").value;
                 var timeStr = document.getElementById("atk_" + id + "_time").value.trim();
-                if (!timeStr) { errors.push("#" + id + ": nincs erkezesi ido"); return; }
+                var mode = document.getElementById("time_mode").value;
+                var timeLabel = mode === "inditas" ? "inditas" : "erkezesi";
+                if (!timeStr) { errors.push("#" + id + ": nincs " + timeLabel + " ido"); return; }
 
-                var arrival = parseArrival(dateStr, timeStr);
-                if (!arrival) { errors.push("#" + id + ": ervenytelen ido"); return; }
+                var parsedTime = parseArrival(dateStr, timeStr);
+                if (!parsedTime) { errors.push("#" + id + ": ervenytelen ido"); return; }
 
                 var tc = calcTravel(cx, cy, units);
                 if (!tc) { errors.push("#" + id + ": nem szamolhato menetido"); return; }
 
                 // Latency kompenzacio: korabban kuldjuk el, hogy a szerverre pontosan erkezzen
                 var latComp = parseInt(document.getElementById("lat_comp").value) || 0;
-                var launchTime = arrival.getTime() - tc.travelSec * 1000 - latComp;
+                var launchTime;
+                if (mode === "inditas") {
+                    launchTime = parsedTime.getTime() - latComp;
+                } else {
+                    launchTime = parsedTime.getTime() - tc.travelSec * 1000 - latComp;
+                }
 
+                var arrival = mode === "inditas" ? new Date(parsedTime.getTime() + tc.travelSec * 1000) : parsedTime;
                 atkData.push({
                     id: id, cx: cx, cy: cy, units: units,
                     arrival: arrival, travelSec: tc.travelSec,
