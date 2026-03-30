@@ -719,7 +719,7 @@
             if (hasErrors) {
                 log("");
                 log("Hibas elokeszitesek ujraprobalasa (csapatok meg uton?)...", "#f90");
-                log("Tavol: 10mp-enkent | T-30mp-tol: 3mp-enkent | T-10mp-tol: 1mp-enkent", "#f90");
+                log("Tavol: 10mp-enkent | T-30mp: 3mp | T-10mp: 500ms", "#f90");
                 var firstLaunchEst = atkData[0].launchTime;
                 while (!cancelled) {
                     var timeLeft = firstLaunchEst - sNow();
@@ -729,7 +729,7 @@
                         break;
                     }
                     // Varakozas az ido fuggvenyeben
-                    var waitMs = timeLeft > 30000 ? 10000 : timeLeft > 10000 ? 3000 : 1000;
+                    var waitMs = timeLeft > 30000 ? 10000 : timeLeft > 10000 ? 3000 : 500;
                     await sl(waitMs);
                     if (cancelled) break;
                     var allDone = true;
