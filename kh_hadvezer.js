@@ -698,6 +698,7 @@
             log("=== ELOKESZITES INDUL (" + atkData.length + " tamadas) ===", "#ff0");
             updateInfo();
 
+            // Elso probalkozes
             for (var i = 0; i < atkData.length; i++) {
                 if (cancelled) return;
                 var a = atkData[i];
@@ -707,10 +708,48 @@
                     log("#" + a.id + " elokeszitve! (RTT: " + a.prep.rtt + "ms)", "#0f0");
                 } catch(e) {
                     a.prepErr = e.message;
-                    log("#" + a.id + " HIBA: " + e.message, "#f00");
+                    log("#" + a.id + " HIBA: " + e.message + " (ujraprobalas T-10mp-ig)", "#f90");
                 }
                 updateInfo();
                 if (i < atkData.length - 1) await sl(500);
+            }
+
+            // Ujraprobalas a hibas tamadasokhoz (pl. csapatok meg uton vannak)
+            var hasErrors = atkData.some(function(a) { return a.prepErr && !a.prep; });
+            if (hasErrors) {
+                log("");
+                log("Hibas elokeszitesek ujraprobalasa (csapatok meg uton?)...", "#f90");
+                log("Tavol: 10mp-enkent | T-30mp-tol: 3mp-enkent | T-10mp-tol: 1mp-enkent", "#f90");
+                var firstLaunchEst = atkData[0].launchTime;
+                while (!cancelled) {
+                    var timeLeft = firstLaunchEst - sNow();
+                    // T-3mp-nel leallunk - nincs tobb ido
+                    if (timeLeft < 3000) {
+                        log("T-3mp - ujraprobalas vege, nincs tobb ido", "#f00");
+                        break;
+                    }
+                    // Varakozas az ido fuggvenyeben
+                    var waitMs = timeLeft > 30000 ? 10000 : timeLeft > 10000 ? 3000 : 1000;
+                    await sl(waitMs);
+                    if (cancelled) break;
+                    var allDone = true;
+                    for (var ri = 0; ri < atkData.length; ri++) {
+                        if (cancelled) break;
+                        var ra = atkData[ri];
+                        if (ra.prep || !ra.prepErr) continue;
+                        allDone = false;
+                        log("#" + ra.id + " ujraprobalas... (T-" + Math.round((firstLaunchEst - sNow()) / 1000) + "mp)");
+                        try {
+                            ra.prep = await prepareOne(ra.cx, ra.cy, ra.units);
+                            ra.prepErr = null;
+                            log("#" + ra.id + " SIKERULT! (RTT: " + ra.prep.rtt + "ms)", "#0f0");
+                        } catch(e) {
+                            log("#" + ra.id + " meg mindig hiba: " + e.message, "#f90");
+                        }
+                        updateInfo();
+                    }
+                    if (allDone) { log("Minden elokeszites sikerult!", "#0f0"); break; }
+                }
             }
 
             log("=== ELOKESZITES KESZ ===", "#ff0");
