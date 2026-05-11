@@ -1,8 +1,18 @@
-// Wrapper: betolti az eredeti attack_planner.js-t, majd felulirja a speedToScrn-t mobilbarat formra.
-$.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js', function(){
+// Wrapper: betolti az eredeti attack_planner.js-t, de leszedi a confirm()-os hibridet
+// es helyette mobilbarat modalt mutat a vilag/egyseg sebessegekhez.
+(function(){
+  // 1) Atmenetileg felulirjuk a confirm()-ot, hogy az eredeti scriptben levo
+  //    "vilag/egyseg sebesseg" confirm ne jelenjen meg (mobil app suppressolja).
+  //    Visszaadunk false-t, igy a script nem hivja a regi speedToScrn-t.
+  var origConfirm = window.confirm;
+  window.confirm = function(msg){
+    if(typeof msg === 'string' && /vil.g.*seb/i.test(msg)){
+      return false;
+    }
+    return origConfirm.apply(window, arguments);
+  };
 
   function mobileSpeedForm(){
-    // toroljuk az eredeti formot ha mar latszik
     $('#speeds_input_form, .ws-backdrop').remove();
     $('.shadedBG').css('filter', 'blur(0px)');
 
@@ -41,10 +51,11 @@ $.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js'
     );
 
     $('body').append($backdrop).append($modal);
+    setTimeout(function(){ try{ $('#ws-world').focus(); }catch(e){} }, 50);
 
     $('#ws-save').on('click', function(){
-      var w = $.trim($('#ws-world').val()).replace(',', '.');
-      var u = $.trim($('#ws-unit').val()).replace(',', '.');
+      var w = String($('#ws-world').val() || '').trim().replace(',', '.');
+      var u = String($('#ws-unit').val() || '').trim().replace(',', '.');
       var wf = parseFloat(w), uf = parseFloat(u);
       if(!w || !u || isNaN(wf) || isNaN(uf) || wf <= 0 || uf <= 0){
         alert('Valamelyik mezo ures vagy nem ervenyes szam.');
@@ -67,19 +78,30 @@ $.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js'
     });
   }
 
-  // Globalis felulirassal a tovabbi hivasok mar a mobilformot hasznaljak
-  window.speedToScrn = mobileSpeedForm;
+  // 2) Eredeti script betoltese
+  $.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js', function(){
+    // Visszaallitjuk a natural confirm-ot
+    window.confirm = origConfirm;
 
-  // Eredeti dblclick eltavolitasa (mobilon nem hasznalhato), helyette sima click
-  $('input.speed_form').off('dblclick').off('click.mobile').on('click.mobile', function(e){
-    e.preventDefault();
-    mobileSpeedForm();
+    // Az eredeti speedToScrn-t lecsereljuk a mobil verziora (regi formot is takaritunk)
+    window.speedToScrn = mobileSpeedForm;
+    $('#speeds_input_form').remove();
+    $('.shadedBG').css('filter', 'blur(0px)');
+
+    // A "Vilag/egyseg sebesseg" gombnal a dblclick mobilon nem mukodik -> sima click
+    $(document).off('click.mobileSpeed').on('click.mobileSpeed', 'input.speed_form', function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      mobileSpeedForm();
+    });
+
+    // Ha a sebesseg meg nincs beallitva (sem hardkodolt vilag, sem localStorage),
+    // azonnal mutassuk a mobilbart formot
+    var w = parseFloat(window.word_speed);
+    var u = parseFloat(window.word_unit_speed);
+    if(!w || !u || isNaN(w) || isNaN(u) || w <= 0 || u <= 0){
+      mobileSpeedForm();
+    }
   });
-
-  // Ha az eredeti script mar betoltotte a ronda formot (mert nincs sebesseg mentve),
-  // most azonnal cseréljük le mobil verziora
-  if($('#speeds_input_form').length){
-    mobileSpeedForm();
-  }
-});
+})();
 void(0);
