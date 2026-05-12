@@ -1,9 +1,8 @@
 // Wrapper az attack_planner.js-hez:
 //  - mobilbarat sebesseg form a prompt() helyett
-//  - "Mobil nezet" gomb: kozelegit-eloszor rendezes + tooltip megjelenitese csapatok adataira
+//  - "Mobil nezet" lebego gomb (fix bottom-right): kozelegit-eloszor + sajat falu-lista
 (function(){
-  // 1) "vilag/egyseg sebesseg" confirm()-ot automatikusan false-ra valtoztatjuk,
-  //    mert mobil appban suppressolva van; helyette a mi formunk jon fel.
+  // ---------- 1) confirm felulirasa a sebesseges resszel ----------
   var origConfirm = window.confirm;
   window.confirm = function(msg){
     if(typeof msg === 'string' && /vil.g.*seb/i.test(msg)){
@@ -27,7 +26,6 @@
       position:'fixed', top:0, left:0, right:0, bottom:0,
       background:'black', opacity:0.6, zIndex:99998
     });
-
     var $modal = $('<div id="speeds_input_form"></div>').css({
       position:'fixed', top:'50%', left:'50%',
       transform:'translate(-50%,-50%)', zIndex:99999,
@@ -78,64 +76,111 @@
     });
   }
 
-  // ---- Mobil nezet ----
+  // ---------- 2) Mobil nezet ----------
   var mobileView = localStorage.getItem('kh_mobile_view') === '1';
 
-  function updateToggleVisual(){
-    var $btn = $('#kh-mobile-toggle');
-    if(!$btn.length) return;
-    $btn.text('Mobil nezet: ' + (mobileView ? 'BE' : 'KI'));
-    $btn.css({
-      padding:'6px 12px', borderRadius:'4px', border:'1px solid black',
-      color:'white', fontWeight:'bold', cursor:'pointer', fontSize:'13px',
-      margin:'0 8px', background: mobileView ? '#1a8a2e' : '#603000'
-    });
+  function formatMs(ms){
+    if(!isFinite(ms) || ms < 0) ms = 0;
+    var totalSec = Math.floor(ms/1000);
+    var h = Math.floor(totalSec/3600);
+    var m = Math.floor((totalSec%3600)/60);
+    var s = totalSec%60;
+    return h + ':' + ('0'+m).slice(-2) + ':' + ('0'+s).slice(-2);
   }
 
-  function setupMobileToggle(){
-    if($('#kh-mobile-toggle').length) return;
-    var $bar = $('.top_bar').first();
-    if(!$bar.length) return;
-    $bar.append('<button id="kh-mobile-toggle" type="button"></button>');
-    updateToggleVisual();
+  function computeLaunchTime(adate, atime, travelMs){
+    // adate: "YYYY-M-D", atime: "H:MM:SS:mmm"
+    var dParts = adate.split('-').map(Number);
+    var tParts = atime.split(':').map(Number);
+    var d = new Date();
+    d.setFullYear(dParts[0]); d.setMonth(dParts[1]-1); d.setDate(dParts[2]);
+    d.setHours(tParts[0]||0); d.setMinutes(tParts[1]||0); d.setSeconds(tParts[2]||0); d.setMilliseconds(tParts[3]||0);
+    d.setTime(d.getTime() - travelMs);
+    return d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate() + ' ' + d.getHours() + ':' + ('0'+d.getMinutes()).slice(-2) + ':' + ('0'+d.getSeconds()).slice(-2);
   }
 
-  function resortExistingDropdowns(){
-    // A meg nem rogzitett under_choose selectek option-jeit ujrasorrolljuk
-    // a kozelseg alapjan a celpontkordhoz.
-    $('.under_choose').each(function(){
-      var $sel = $(this);
-      var $cmd = $sel.closest('.command_container');
-      var $target = $cmd.parent();
-      var tm = ($target.find('p').first().text().match(/\d+\|\d+/g) || []);
-      if(!tm.length) return;
-      var tc = tm[0].split('|').map(Number);
-
-      var $opts = $sel.find('option').not('[value=empty]').get();
-      $opts.sort(function(a, b){
-        var ac = ($(a).val() || '').split('|').map(Number);
-        var bc = ($(b).val() || '').split('|').map(Number);
-        if(isNaN(ac[0]) || isNaN(bc[0])) return 0;
-        var da = Math.sqrt(Math.pow(ac[0]-tc[0],2) + Math.pow(ac[1]-tc[1],2));
-        var db = Math.sqrt(Math.pow(bc[0]-tc[0],2) + Math.pow(bc[1]-tc[1],2));
-        return da - db;
-      });
-      $sel.find('option').not('[value=empty]').remove();
-      $sel.append($opts);
-    });
+  function createFAB(){
+    if($('#kh-mobile-fab').length) return;
+    $('body').append(
+      '<button id="kh-mobile-fab" type="button" style="position:fixed;bottom:20px;right:20px;z-index:99990;padding:14px 18px;border-radius:30px;border:2px solid black;color:white;font-weight:bold;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,0.5)"></button>'
+    );
+    updateFAB();
   }
 
-  function applyMobileView(){
+  function updateFAB(){
+    var $btn = $('#kh-mobile-fab');
+    $btn.text(mobileView ? '✓ Mobil nezet BE' : '○ Mobil nezet KI');
+    $btn.css('background', mobileView ? '#1a8a2e' : '#603000');
+  }
+
+  function refreshAllPickers(){
     if(mobileView){
-      $(".vill_sorting_radio[identif='0']").prop('checked', true).trigger('change');
-      resortExistingDropdowns();
+      $('select.under_choose').each(function(){ buildPickerFor($(this)); });
     } else {
-      $("#script_tooltip").css('display','none');
+      $('.kh-village-picker').remove();
+      $('select.under_choose, select.villages_drop_down').css('display','');
+      $('#script_tooltip').css('display','none');
     }
   }
 
-  function showMobileTooltip($select){
+  function buildPickerFor($select){
+    $select.next('.kh-village-picker').remove();
     if(!mobileView) return;
+
+    var $cmd = $select.closest('.command_container');
+    var $target = $cmd.parent();
+    var pText = $target.find('p').first().text();
+    var tm = pText.match(/\d+\|\d+/g);
+    var atime = pText.match(/\d+:\d+:\d+:\d+/g);
+    var adate = pText.match(/\d+-\d+-\d+/g);
+    if(!tm || !atime || !adate) return;
+
+    var target_coord = tm[0];
+    var target_xy = target_coord.split('|').map(Number);
+    var accelerator = parseFloat('0.' + ($cmd.find('.accelerator').val() || '0'));
+    var slowest = $cmd.find('.slowest_unit').val();
+    var unitsSpeeds = window.units_speeds || {};
+    var slowest_speed = unitsSpeeds[slowest] || 35;
+    var ws = window.word_speed, wu = window.word_unit_speed;
+    if(!ws || !wu) return;
+
+    var villages = [];
+    $select.find('option').each(function(){
+      var coord = $(this).val();
+      if(!coord || coord === 'empty') return;
+      var cxy = coord.split('|').map(Number);
+      if(isNaN(cxy[0]) || isNaN(cxy[1])) return;
+      var distance = Math.sqrt(Math.pow(cxy[0]-target_xy[0],2) + Math.pow(cxy[1]-target_xy[1],2));
+      var travel_ms = (slowest_speed / ws / (wu + wu * accelerator)) * distance * 60 * 1000;
+      villages.push({ coord:coord, label:$(this).text() || coord, travel_ms:travel_ms });
+    });
+    villages.sort(function(a,b){ return a.travel_ms - b.travel_ms; });
+
+    var html = '<div class="kh-village-picker" style="background:wheat;border:2px solid saddlebrown;border-radius:4px;margin:8px 0;max-height:60vh;overflow-y:auto;font-family:Verdana,sans-serif">';
+    html += '<div style="padding:8px 10px;background:burlywood;color:saddlebrown;font-weight:bold;font-size:13px;border-bottom:1px solid saddlebrown">Falu (' + villages.length + ' db) — kozelegit elol</div>';
+
+    if(!villages.length){
+      html += '<div style="padding:12px;color:#603000;text-align:center">Nincs elerheto falu</div>';
+    } else {
+      villages.forEach(function(v){
+        var tt = formatMs(v.travel_ms);
+        var launchAt = computeLaunchTime(adate[0], atime[0], v.travel_ms);
+        html += '<div class="kh-vp-row" data-coord="' + v.coord + '" style="padding:10px;border-top:1px solid #d4b88a;display:flex;justify-content:space-between;align-items:center;gap:8px">';
+        html +=   '<div style="flex:1;min-width:0">';
+        html +=     '<div style="font-weight:bold;font-size:13px;color:#3a2200">' + v.label + '</div>';
+        html +=     '<div style="font-size:11px;color:#603000;margin-top:2px">Menetido: <b>' + tt + '</b></div>';
+        html +=     '<div style="font-size:11px;color:#603000">Indit: <b>' + launchAt + '</b></div>';
+        html +=   '</div>';
+        html +=   '<button class="kh-vp-pick" data-coord="' + v.coord + '" style="background:saddlebrown;color:white;border:0;padding:10px 14px;border-radius:4px;font-size:12px;font-weight:bold;cursor:pointer;white-space:nowrap">Valaszt</button>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+
+    $select.css('display','none').after(html);
+  }
+
+  function showFullTooltip($select){
     if(typeof window.refresh_tooltip_units_in_village !== 'function') return;
     if(typeof window.set_tooltip_travel_time !== 'function') return;
     if(typeof window.set_tooltip_launch_time !== 'function') return;
@@ -152,7 +197,6 @@
     var target_coord = tm[0];
     var coord = $select.val();
     if(!coord || coord === 'empty') return;
-
     var accelerator = '0.' + ($cmd.find('.accelerator').val() || '0');
     var arriving = adate[0].split('-').join(':') + ':' + atime[0];
 
@@ -170,39 +214,76 @@
       overflowX:'auto', overflowY:'auto',
       zIndex:99999, boxShadow:'0 4px 20px rgba(0,0,0,0.8)'
     });
-
     if(!$('#script_tooltip .kh-close').length){
       $('#script_tooltip').prepend(
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-weight:bold">' +
-          '<span class="kh-coord" style="color:#603000">'+coord+' &rarr; '+target_coord+'</span>' +
+          '<span class="kh-coord" style="color:#603000">' + coord + ' &rarr; ' + target_coord + '</span>' +
           '<button class="kh-close" style="background:red;color:white;border:0;padding:6px 12px;border-radius:3px;cursor:pointer;font-weight:bold">Bezar X</button>' +
         '</div>'
       );
     } else {
-      $('#script_tooltip .kh-coord').html(coord+' &rarr; '+target_coord);
+      $('#script_tooltip .kh-coord').html(coord + ' &rarr; ' + target_coord);
     }
   }
 
-  // Toggle gomb klikk + dropdown change kezelo (delegalt)
-  $(document).on('click.khMobToggle', '#kh-mobile-toggle', function(e){
+  // ---------- Esemenykezelok (delegalt) ----------
+  $(document).on('click.khFab', '#kh-mobile-fab', function(e){
     e.preventDefault();
     mobileView = !mobileView;
     localStorage.setItem('kh_mobile_view', mobileView ? '1' : '0');
-    updateToggleVisual();
-    applyMobileView();
+    updateFAB();
+    if(mobileView){
+      $(".vill_sorting_radio[identif='0']").prop('checked', true).trigger('change');
+    } else {
+      $('#script_tooltip').css('display','none');
+    }
+    refreshAllPickers();
   });
 
-  $(document).on('change.khMobChg', 'select.under_choose, select.villages_drop_down', function(){
-    if(!mobileView) return;
-    var $this = $(this);
-    setTimeout(function(){ showMobileTooltip($this); }, 50);
+  // Falu valasztasa a sajat listabol -> select.val + change trigger
+  $(document).on('click.khPick', '.kh-vp-pick', function(e){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    var coord = $(this).attr('data-coord');
+    var $picker = $(this).closest('.kh-village-picker');
+    var $select = $picker.prev('select');
+    if(!$select.length) return;
+    if($select.prop('disabled')){
+      $picker.remove();
+      return;
+    }
+    $select.val(coord);
+    $select.trigger('change');
+    setTimeout(function(){
+      $picker.remove();
+      showFullTooltip($select);
+    }, 50);
   });
 
-  $(document).on('click.khMobClose', '#script_tooltip .kh-close', function(){
+  // Bezar gomb a tooltipben
+  $(document).on('click.khClose', '#script_tooltip .kh-close', function(){
     $('#script_tooltip').css('display','none');
   });
 
-  // 2) Eredeti script betoltese
+  // Ha inactive_type valtozik -> uj under_choose, ujraepiteni a pickert
+  $(document).on('change.khType', 'select.inactive_type', function(){
+    if(!mobileView) return;
+    var $cmd = $(this).closest('.command_container');
+    setTimeout(function(){
+      var $sel = $cmd.find('select.under_choose');
+      if($sel.length) buildPickerFor($sel);
+    }, 100);
+  });
+
+  // Slowest unit / accelerator valtozasakor frissitsuk a menetidoket a pickerben
+  $(document).on('change.khRecalc', 'select.slowest_unit, select.accelerator', function(){
+    if(!mobileView) return;
+    var $cmd = $(this).closest('.command_container');
+    var $sel = $cmd.find('select.under_choose');
+    if($sel.length) buildPickerFor($sel);
+  });
+
+  // ---------- 3) Eredeti script betoltese ----------
   $.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js', function(){
     window.confirm = origConfirm;
     window.speedToScrn = mobileSpeedForm;
@@ -220,9 +301,12 @@
     }
 
     setTimeout(function(){
-      setupMobileToggle();
-      if(mobileView){ applyMobileView(); }
-    }, 300);
+      createFAB();
+      if(mobileView){
+        $(".vill_sorting_radio[identif='0']").prop('checked', true).trigger('change');
+        refreshAllPickers();
+      }
+    }, 400);
   });
 })();
 void(0);
