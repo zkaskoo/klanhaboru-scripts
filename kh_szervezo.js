@@ -1,9 +1,9 @@
-// Wrapper: betolti az eredeti attack_planner.js-t, de leszedi a confirm()-os hibridet
-// es helyette mobilbarat modalt mutat a vilag/egyseg sebessegekhez.
+// Wrapper az attack_planner.js-hez:
+//  - mobilbarat sebesseg form a prompt() helyett
+//  - "Mobil nezet" gomb: kozelegit-eloszor rendezes + tooltip megjelenitese csapatok adataira
 (function(){
-  // 1) Atmenetileg felulirjuk a confirm()-ot, hogy az eredeti scriptben levo
-  //    "vilag/egyseg sebesseg" confirm ne jelenjen meg (mobil app suppressolja).
-  //    Visszaadunk false-t, igy a script nem hivja a regi speedToScrn-t.
+  // 1) "vilag/egyseg sebesseg" confirm()-ot automatikusan false-ra valtoztatjuk,
+  //    mert mobil appban suppressolva van; helyette a mi formunk jon fel.
   var origConfirm = window.confirm;
   window.confirm = function(msg){
     if(typeof msg === 'string' && /vil.g.*seb/i.test(msg)){
@@ -78,30 +78,151 @@
     });
   }
 
+  // ---- Mobil nezet ----
+  var mobileView = localStorage.getItem('kh_mobile_view') === '1';
+
+  function updateToggleVisual(){
+    var $btn = $('#kh-mobile-toggle');
+    if(!$btn.length) return;
+    $btn.text('Mobil nezet: ' + (mobileView ? 'BE' : 'KI'));
+    $btn.css({
+      padding:'6px 12px', borderRadius:'4px', border:'1px solid black',
+      color:'white', fontWeight:'bold', cursor:'pointer', fontSize:'13px',
+      margin:'0 8px', background: mobileView ? '#1a8a2e' : '#603000'
+    });
+  }
+
+  function setupMobileToggle(){
+    if($('#kh-mobile-toggle').length) return;
+    var $bar = $('.top_bar').first();
+    if(!$bar.length) return;
+    $bar.append('<button id="kh-mobile-toggle" type="button"></button>');
+    updateToggleVisual();
+  }
+
+  function resortExistingDropdowns(){
+    // A meg nem rogzitett under_choose selectek option-jeit ujrasorrolljuk
+    // a kozelseg alapjan a celpontkordhoz.
+    $('.under_choose').each(function(){
+      var $sel = $(this);
+      var $cmd = $sel.closest('.command_container');
+      var $target = $cmd.parent();
+      var tm = ($target.find('p').first().text().match(/\d+\|\d+/g) || []);
+      if(!tm.length) return;
+      var tc = tm[0].split('|').map(Number);
+
+      var $opts = $sel.find('option').not('[value=empty]').get();
+      $opts.sort(function(a, b){
+        var ac = ($(a).val() || '').split('|').map(Number);
+        var bc = ($(b).val() || '').split('|').map(Number);
+        if(isNaN(ac[0]) || isNaN(bc[0])) return 0;
+        var da = Math.sqrt(Math.pow(ac[0]-tc[0],2) + Math.pow(ac[1]-tc[1],2));
+        var db = Math.sqrt(Math.pow(bc[0]-tc[0],2) + Math.pow(bc[1]-tc[1],2));
+        return da - db;
+      });
+      $sel.find('option').not('[value=empty]').remove();
+      $sel.append($opts);
+    });
+  }
+
+  function applyMobileView(){
+    if(mobileView){
+      $(".vill_sorting_radio[identif='0']").prop('checked', true).trigger('change');
+      resortExistingDropdowns();
+    } else {
+      $("#script_tooltip").css('display','none');
+    }
+  }
+
+  function showMobileTooltip($select){
+    if(!mobileView) return;
+    if(typeof window.refresh_tooltip_units_in_village !== 'function') return;
+    if(typeof window.set_tooltip_travel_time !== 'function') return;
+    if(typeof window.set_tooltip_launch_time !== 'function') return;
+    if(!$('#script_tooltip').length) return;
+
+    var $cmd = $select.closest('.command_container');
+    var $target = $cmd.parent();
+    var pText = $target.find('p').first().text();
+    var tm = pText.match(/\d+\|\d+/g);
+    var atime = pText.match(/\d+:\d+:\d+:\d+/g);
+    var adate = pText.match(/\d+-\d+-\d+/g);
+    if(!tm || !atime || !adate) return;
+
+    var target_coord = tm[0];
+    var coord = $select.val();
+    if(!coord || coord === 'empty') return;
+
+    var accelerator = '0.' + ($cmd.find('.accelerator').val() || '0');
+    var arriving = adate[0].split('-').join(':') + ':' + atime[0];
+
+    try{
+      refresh_tooltip_units_in_village(coord);
+      set_tooltip_travel_time(coord, target_coord, accelerator);
+      set_tooltip_launch_time(coord, target_coord, arriving, accelerator);
+    }catch(e){ return; }
+
+    $('#script_tooltip').css({
+      display:'inline-block', position:'fixed',
+      top:'50%', left:'50%', right:'auto',
+      transform:'translate(-50%,-50%)',
+      maxWidth:'95vw', maxHeight:'85vh',
+      overflowX:'auto', overflowY:'auto',
+      zIndex:99999, boxShadow:'0 4px 20px rgba(0,0,0,0.8)'
+    });
+
+    if(!$('#script_tooltip .kh-close').length){
+      $('#script_tooltip').prepend(
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-weight:bold">' +
+          '<span class="kh-coord" style="color:#603000">'+coord+' &rarr; '+target_coord+'</span>' +
+          '<button class="kh-close" style="background:red;color:white;border:0;padding:6px 12px;border-radius:3px;cursor:pointer;font-weight:bold">Bezar X</button>' +
+        '</div>'
+      );
+    } else {
+      $('#script_tooltip .kh-coord').html(coord+' &rarr; '+target_coord);
+    }
+  }
+
+  // Toggle gomb klikk + dropdown change kezelo (delegalt)
+  $(document).on('click.khMobToggle', '#kh-mobile-toggle', function(e){
+    e.preventDefault();
+    mobileView = !mobileView;
+    localStorage.setItem('kh_mobile_view', mobileView ? '1' : '0');
+    updateToggleVisual();
+    applyMobileView();
+  });
+
+  $(document).on('change.khMobChg', 'select.under_choose, select.villages_drop_down', function(){
+    if(!mobileView) return;
+    var $this = $(this);
+    setTimeout(function(){ showMobileTooltip($this); }, 50);
+  });
+
+  $(document).on('click.khMobClose', '#script_tooltip .kh-close', function(){
+    $('#script_tooltip').css('display','none');
+  });
+
   // 2) Eredeti script betoltese
   $.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js', function(){
-    // Visszaallitjuk a natural confirm-ot
     window.confirm = origConfirm;
-
-    // Az eredeti speedToScrn-t lecsereljuk a mobil verziora (regi formot is takaritunk)
     window.speedToScrn = mobileSpeedForm;
     $('#speeds_input_form').remove();
     $('.shadedBG').css('filter', 'blur(0px)');
 
-    // A "Vilag/egyseg sebesseg" gombnal a dblclick mobilon nem mukodik -> sima click
     $(document).off('click.mobileSpeed').on('click.mobileSpeed', 'input.speed_form', function(e){
-      e.preventDefault();
-      e.stopImmediatePropagation();
+      e.preventDefault(); e.stopImmediatePropagation();
       mobileSpeedForm();
     });
 
-    // Ha a sebesseg meg nincs beallitva (sem hardkodolt vilag, sem localStorage),
-    // azonnal mutassuk a mobilbart formot
-    var w = parseFloat(window.word_speed);
-    var u = parseFloat(window.word_unit_speed);
+    var w = parseFloat(window.word_speed), u = parseFloat(window.word_unit_speed);
     if(!w || !u || isNaN(w) || isNaN(u) || w <= 0 || u <= 0){
       mobileSpeedForm();
     }
+
+    setTimeout(function(){
+      setupMobileToggle();
+      if(mobileView){ applyMobileView(); }
+    }, 300);
   });
 })();
 void(0);
