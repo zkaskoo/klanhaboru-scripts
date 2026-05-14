@@ -25,35 +25,135 @@
     inp.addEventListener("keydown", function(e){ if(e.key==="Enter") done(inp.value); });
   }
 
-  ask(function(ido1){
-    if(!ido1) return;
-    var hour1     = ido1.substring(0,2);
-    var minute1   = ido1.substring(3,5);
-    var second1   = ido1.substring(6,8);
-    var millisec1 = parseInt(ido1.substring(9,12),10) || 0;
+  function parseRelative(html){
+    // A .relative_time vegen mindig HH:MM:SS van. Az offset a hosztol fugg.
+    var len = html.length;
+    var off = len===18 ? 10 : len===22 ? 14 : len===42 ? 34 : -1;
+    if(off < 0) return null;
+    var t = html.slice(off);
+    var h = parseInt(t.substring(0,2),10);
+    var m = parseInt(t.substring(3,5),10);
+    var s = parseInt(t.substring(6,8),10);
+    if(isNaN(h)||isNaN(m)||isNaN(s)) return null;
+    return { h:h, m:m, s:s };
+  }
 
-    var hely = document.getElementById("content_value").getElementsByTagName("table")[0];
-    hely.width = "400";
-    hely.style.width = "400px";
-    var row = hely.insertRow(-1);
-    row.style.width = "200px";
-    row.insertCell(0).innerHTML = ido1;
-
+  function fireClick(){
+    // Click pillanatban frissen lekerjuk a gombot (a referencia kozben elavulhat).
     var btn = document.querySelector(".troop_confirm_go")
            || document.getElementById("troop_confirm_submit");
+    if(btn) btn.click();
+  }
 
-    var relLen = document.querySelector(".relative_time").innerHTML.length;
-    var offset = relLen === 18 ? 10 : relLen === 22 ? 14 : relLen === 42 ? 34 : null;
-    if(offset === null){ alert("Ismeretlen relative_time formatum: "+relLen); return; }
+  function finalApproach(targetT){
+    // Utolso szakasz: rAF amig > 20ms van hatra, utana busy-wait a maximalis pontossagert.
+    function tick(){
+      var r = targetT - performance.now();
+      if(r <= 0){ fireClick(); return; }
+      if(r > 20){ requestAnimationFrame(tick); return; }
+      while(performance.now() < targetT){ /* busy-wait < 20ms */ }
+      fireClick();
+    }
+    tick();
+  }
 
-    var fired = false;
-    var iv = setInterval(function(){
-      var t = document.querySelector(".relative_time").innerHTML.slice(offset);
-      if(t.substring(0,2)===hour1 && t.substring(3,5)===minute1 && t.substring(6,8)===second1 && !fired){
-        fired = true;
-        clearInterval(iv);
-        setTimeout(function(){ btn.click(); }, millisec1);
+  function makeWorker(){
+    // Web Worker setTimeout-ja NEM kerul throttle ala hatter tabban,
+    // ellentetben a main thread setTimeout-tal (~1000ms minimum hatterben).
+    try {
+      var src = "self.onmessage=function(e){setTimeout(function(){self.postMessage(1);},e.data);};";
+      var blob = new Blob([src], { type: "application/javascript" });
+      return new Worker(URL.createObjectURL(blob));
+    } catch(e) { return null; }
+  }
+
+  function tryWakeLock(){
+    // Megakadalyozza a kepernyo elalvasat (mobilon kritikus).
+    try {
+      if(navigator.wakeLock && navigator.wakeLock.request){
+        navigator.wakeLock.request("screen").catch(function(){});
       }
-    }, 1);
+    } catch(e) {}
+  }
+
+  ask(function(input){
+    if(!input) return;
+
+    var tH  = parseInt(input.substring(0,2),10);
+    var tM  = parseInt(input.substring(3,5),10);
+    var tS  = parseInt(input.substring(6,8),10);
+    var tMs = parseInt(input.substring(9,12),10) || 0;
+
+    if(isNaN(tH) || isNaN(tM) || isNaN(tS)){
+      alert("Ervenytelen ido. Formatum: HH:MM:SS:mmm");
+      return;
+    }
+
+    // Vizualis visszajelzes (mint az eredeti scriptben)
+    try {
+      var hely = document.getElementById("content_value").getElementsByTagName("table")[0];
+      hely.width = "400";
+      hely.style.width = "400px";
+      var row = hely.insertRow(-1);
+      row.style.width = "200px";
+      row.insertCell(0).innerHTML = input;
+    } catch(e) {}
+
+    var rt0 = document.querySelector(".relative_time");
+    if(!rt0){ alert("Nincs .relative_time elem az oldalon"); return; }
+    var initialHtml = rt0.innerHTML;
+    if(!parseRelative(initialHtml)){
+      alert("Ismeretlen relative_time formatum: " + initialHtml.length);
+      return;
+    }
+
+    tryWakeLock();
+
+    // 1) Szinkronizalas a kovetkezo szerver-masodperc hatarara.
+    //    Amikor a .relative_time szovege valtozik, az a szerver-ora masodperc-hatara.
+    //    Ezt egyetlen pontkent hasznaljuk: innen mar abszolut idoben szamolunk.
+    var syncIv = setInterval(function(){
+      var rt = document.querySelector(".relative_time");
+      if(!rt) return;
+      var curr = rt.innerHTML;
+      if(curr === initialHtml) return;
+
+      var anchor = performance.now();   // client-clock pillanat a szerver-masodperc kezdetekor
+      clearInterval(syncIv);
+
+      var p = parseRelative(curr);
+      if(!p){ alert("relative_time formatum hiba"); return; }
+
+      var anchorSec = p.h*3600 + p.m*60 + p.s;
+      var targetSec = tH*3600 + tM*60 + tS;
+      var diffSec = targetSec - anchorSec;
+      if(diffSec < 0) diffSec += 86400; // ha a cel mar elment ma, holnapra
+
+      var targetT = anchor + diffSec*1000 + tMs;
+      var remaining = targetT - performance.now();
+
+      if(remaining <= 0){
+        // Mar elment - azonnal kattintunk
+        fireClick();
+        return;
+      }
+
+      // 2) Hosszu varakozas: Web Workerrel, hogy hatter tabban se throttle-oljon.
+      //    A worker ~500ms-mel a cel elott ebreszt fel.
+      var worker = makeWorker();
+      if(worker && remaining > 1000){
+        worker.onmessage = function(){
+          try { worker.terminate(); } catch(e) {}
+          finalApproach(targetT);
+        };
+        worker.postMessage(remaining - 500);
+      } else if(remaining > 200){
+        // Fallback: sima setTimeout
+        setTimeout(function(){ finalApproach(targetT); }, remaining - 100);
+      } else {
+        // Kozeli cel: egybol final szakasz
+        finalApproach(targetT);
+      }
+    }, 2);
   });
 })();
