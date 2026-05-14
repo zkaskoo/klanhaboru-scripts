@@ -9,6 +9,9 @@
     if(typeof msg === 'string' && /vil.g.*seb/i.test(msg)){
       return false;
     }
+    if(typeof msg === 'string' && /nuke|kos|leglassabb/i.test(msg)){
+      return true;
+    }
     return origConfirm.apply(window, arguments);
   };
 
@@ -80,8 +83,9 @@
 
   // 2) Eredeti script betoltese
   $.getScript('https://media.innogamescdn.com/com_DS_HU/scripts/attack_planner.js', function(){
-    // Visszaallitjuk a natural confirm-ot
-    window.confirm = origConfirm;
+    // A confirm() override-ot szandekosan NEM allitjuk vissza:
+    // - "vilag/egyseg sebesseg" confirm-ot tovabbra is suppress-elunk (mobil form helyettesiti)
+    // - "Nuke/Kos leglassabb egyseg" figyelmeztetest auto-OK-val atugorjuk
 
     // Az eredeti speedToScrn-t lecsereljuk a mobil verziora (regi formot is takaritunk)
     window.speedToScrn = mobileSpeedForm;
