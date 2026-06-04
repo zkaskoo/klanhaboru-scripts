@@ -1,5 +1,5 @@
-// Klanhaboru - Auto Farm Complete (Beagyazott jatek-panel + rejtett worker-iframe + loop)
-// A panel a jatek DOM-jaba kerul (a farm lista fole), jatek-stilusban, mintha eredeti funkcio lenne.
+// Klanhaboru - Auto Farm Complete (Natuv KH-panel + rejtett worker-iframe + loop)
+// A panel a jatek sajat .vis tablazat-stilusaban, a "Rendelkezesre all" (#units_home) tabla ala agyazva.
 // A lapozas/kattintas egy rejtett iframe-ben tortenik, ezert a panel tuleli az oldalvaltast.
 // Vegigkattintja az A/B gombokat, lapoz, loopol amig van egyseg.
 
@@ -19,57 +19,72 @@
     iframe.src = location.href;
     iframe.style.cssText = 'width:100%;height:420px;border:1px solid #7d510f;border-radius:3px;margin-top:8px;background:#fff;display:none;';
 
-    // === Panel DOM (beagyazva a jatek tartalmaba, jatek-stilusban) ===
-    var panel = document.createElement('div');
+    // === Panel: natuv KH .vis tablazat ===
+    var panel = document.createElement('table');
     panel.id = 'af_panel';
-    panel.style.cssText = 'width:100%;box-sizing:border-box;margin:0 0 12px 0;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#5d4a1f;background:#f4e4bc;border:1px solid #7d510f;border-radius:4px;overflow:hidden;';
+    panel.className = 'vis';
+    panel.setAttribute('width','100%');
+    panel.style.cssText = 'width:100%;margin-bottom:10px;';
 
     var h = '';
-    // Header (jatek-stilusu barna sav)
-    h += '<div style="background:#7d510f;padding:6px 12px;font-size:13px;font-weight:bold;color:#f4e4bc;display:flex;justify-content:space-between;align-items:center;">';
-    h += '<span>&#9876; Auto Farm Complete</span>';
-    h += '<span><button id="af_view" title="Iframe mutatasa/elrejtese" style="background:transparent;color:#f4e4bc;border:1px solid #f4e4bc;border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px;margin-right:4px;">&#128065;</button>';
-    h += '<button id="af_close" title="Bezaras" style="background:transparent;color:#f4e4bc;border:none;cursor:pointer;font-size:16px;font-weight:bold;line-height:1;">&times;</button></span>';
-    h += '</div>';
+    h += '<tbody>';
+    // Fejlec (jatek .vis th + h4 stilus)
+    h += '<tr><th class="vis" style="text-align:left;">';
+    h += '<h4 style="display:inline-block;margin:0;">&#9876; Auto Farm Complete</h4>';
+    h += '<span style="float:right;">';
+    h += '<button id="af_view" title="Munkaablak (iframe) mutatasa/elrejtese" class="btn" style="padding:0 6px;margin-right:4px;">&#128065;</button>';
+    h += '<button id="af_close" title="Bezaras" class="btn" style="padding:0 7px;">&times;</button>';
+    h += '</span>';
+    h += '</th></tr>';
 
-    h += '<div style="padding:10px 12px;">';
+    // Torzs (a jatek parchment hattere a .vis td-n keresztul)
+    h += '<tr><td style="padding:10px;">';
 
     // Stats
-    h += '<div style="background:#fff8e8;border:1px solid #c1a264;padding:6px 10px;border-radius:3px;margin-bottom:8px;">';
-    h += 'Kor: <b id="af_round">-</b> | Oldal: <b id="af_page">-</b> | Kuldve: <b id="af_total">0</b>';
+    h += '<div style="margin-bottom:8px;font-size:12px;">';
+    h += 'Kor: <b id="af_round">-</b> &nbsp;|&nbsp; Oldal: <b id="af_page">-</b> &nbsp;|&nbsp; Kuldve: <b id="af_total">0</b>';
     h += '</div>';
 
-    // Progress bar
+    // Progress bar (FarmGod-szeru)
     h += '<div style="background:#d8c9a3;border-radius:3px;height:16px;overflow:hidden;margin-bottom:8px;border:1px solid #7d510f;">';
     h += '<div id="af_bar" style="background:#7d510f;height:100%;width:0%;transition:width 0.2s;"></div>';
     h += '</div>';
 
     // Status
-    h += '<div id="af_status" style="margin-bottom:8px;color:#2d7d0f;font-weight:bold;">Varakozas inditasra...</div>';
+    h += '<div id="af_status" style="margin-bottom:8px;color:#2d7d0f;font-weight:bold;font-size:12px;">Varakozas inditasra...</div>';
 
-    // Controls
-    h += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
-    h += '<button id="af_start" style="background:#7d510f;color:#f4e4bc;border:none;padding:6px 22px;font-size:13px;font-weight:bold;cursor:pointer;border-radius:3px;">Inditas</button>';
-    h += '<button id="af_stop" style="background:#c0392b;color:#fff;border:none;padding:6px 18px;font-size:13px;font-weight:bold;cursor:pointer;border-radius:3px;display:none;">Leallitas</button>';
-    h += '<label style="font-size:11px;">Max oldal: <input id="af_maxpage" type="number" value="0" min="0" max="100" style="width:45px;text-align:center;padding:2px;border:1px solid #7d510f;background:#fff8e8;color:#5d4a1f;font-size:11px;" title="0 = osszes"></label>';
-    h += '<label style="font-size:11px;">Sablon: <select id="af_tpl" style="padding:2px;border:1px solid #7d510f;background:#fff8e8;color:#5d4a1f;font-size:11px;"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
+    // Vezerlok
+    h += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;">';
+    h += '<button id="af_start" class="btn" style="font-weight:bold;padding:3px 18px;">Inditas</button>';
+    h += '<button id="af_stop" class="btn" style="font-weight:bold;padding:3px 16px;background:#c0392b;color:#fff;display:none;">Leallitas</button>';
+    h += '<label>Max oldal: <input id="af_maxpage" type="number" value="0" min="0" max="100" style="width:45px;text-align:center;" title="0 = osszes"></label>';
+    h += '<label>Sablon: <select id="af_tpl"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
     h += '</div>';
 
-    // Log
+    // Log (terminal-stilus, szandekosan elut)
     h += '<div id="af_log" style="background:#111;color:#0f0;font-family:Consolas,monospace;font-size:11px;padding:8px;height:180px;overflow-y:auto;border-radius:3px;border:1px solid #333;"></div>';
 
-    h += '</div>';
+    h += '</td></tr>';
+    h += '</tbody>';
     panel.innerHTML = h;
-    panel.appendChild(iframe);
 
-    // === Beillesztes a jatek tartalmaba (a farm widget / lista fole) ===
-    var anchor = document.querySelector('#am_widget_farm')
+    // iframe a panel ala, kulon sorban
+    var ifRow = document.createElement('tr');
+    var ifCell = document.createElement('td');
+    ifCell.style.padding = '0 10px 10px';
+    ifCell.appendChild(iframe);
+    ifRow.appendChild(ifCell);
+    panel.querySelector('tbody').appendChild(ifRow);
+
+    // === Beillesztes a "Rendelkezesre all" (#units_home) tabla ala ===
+    var anchor = document.querySelector('#units_home')
+              || document.querySelector('#am_widget_farm')
               || document.querySelector('#plunder_list')
               || document.querySelector('#content_value');
-    if(anchor && anchor.id !== 'content_value' && anchor.parentNode){
-        anchor.parentNode.insertBefore(panel, anchor);
-    } else if(anchor){
-        anchor.insertBefore(panel, anchor.firstChild); // content_value teteje
+    if(anchor && anchor.id === 'content_value'){
+        anchor.insertBefore(panel, anchor.firstChild);
+    } else if(anchor && anchor.parentNode){
+        anchor.parentNode.insertBefore(panel, anchor.nextSibling); // KOZVETLENUL a tabla ala
     } else {
         document.body.insertBefore(panel, document.body.firstChild);
     }
@@ -234,7 +249,7 @@
         $('af_log').innerHTML='';
         log('=== AUTO FARM COMPLETE INDITAS ===','#ff0');
 
-        log('Iframe betoltese...');
+        log('Munkaablak betoltese...');
         await waitForPage();
 
         var pageUrls=getPageUrls();
@@ -315,7 +330,7 @@
         setTimeout(function(){ $('af_stop').disabled=false; $('af_stop').style.opacity='1'; },2000);
     });
 
-    // Iframe mutatasa/elrejtese
+    // Munkaablak (iframe) mutatasa/elrejtese
     $('af_view').addEventListener('click',function(){
         iframe.style.display = (iframe.style.display==='none') ? 'block' : 'none';
     });
