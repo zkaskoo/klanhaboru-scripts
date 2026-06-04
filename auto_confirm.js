@@ -1,30 +1,50 @@
 // Klanhaboru - Auto Farm Complete (Natuv KH-panel + rejtett worker-iframe + loop)
-// A panel a jatek sajat .vis tablazat-stilusaban, a "Rendelkezesre all" (#units_home) tabla ala agyazva.
-// A lapozas/kattintas egy rejtett iframe-ben tortenik, ezert a panel tuleli az oldalvaltast.
-// Vegigkattintja az A/B gombokat, lapoz, loopol amig van egyseg.
+// Keret-tudatos: mobilon a Farmkezelo gyakran egy iframe-ben tolt be, ezert megkeressuk
+// melyik dokumentumban van a farm, es ODA szurjuk be a panelt (kulonben telefonon nem nyilik meg).
+// A lapozas/kattintas sajat rejtett worker-iframe-ben tortenik, igy a panel tuleli az oldalvaltast.
 
 (function(){
-    // Indito-ellenorzes (mobilon a game_data nem mindig elerheto, ezert tobb jelet is nezunk)
-    var looksLikeGame = (typeof game_data !== 'undefined')
+    var FARM_SEL = '#am_widget_farm, #units_home, #plunder_list';
+
+    // === A farmot tartalmazo dokumentum megkeresese (fo oldal vagy alkeret) ===
+    function findFarmDoc(){
+        try{ if(document.querySelector(FARM_SEL)) return document; }catch(e){}
+        var frames = document.querySelectorAll('iframe, frame');
+        for(var i=0;i<frames.length;i++){
+            try{
+                var d = frames[i].contentDocument || (frames[i].contentWindow && frames[i].contentWindow.document);
+                if(d && d.querySelector(FARM_SEL)) return d;
+            }catch(e){}
+        }
+        return document; // fallback: fo oldal
+    }
+
+    var D = findFarmDoc();                       // host dokumentum (ide kerul a panel)
+    var DW = D.defaultView || window;            // host ablak
+    var hostHref = (function(){ try{ return DW.location.href; }catch(e){ return location.href; } })();
+
+    var hasFarm = !!D.querySelector(FARM_SEL);
+    var looksLikeGame = hasFarm
+        || (typeof game_data !== 'undefined')
         || /game\.php|am_farm|screen=/i.test(location.href)
-        || !!document.querySelector('#units_home, #am_widget_farm, #plunder_list, #content_value');
+        || !!document.querySelector('#content_value');
     if(!looksLikeGame){
         alert('Nyisd meg a Klanhaboru Farmkezelo oldalat!');
         return;
     }
 
     // === Ujrafuttatas eseten takaritsuk el a regit ===
-    var oldPanel = document.getElementById('af_panel');
+    var oldPanel = D.getElementById('af_panel');
     if(oldPanel) oldPanel.remove();
 
     // === Worker iframe (itt tortenik a lapozas es a kattintas) ===
-    var iframe = document.createElement('iframe');
+    var iframe = D.createElement('iframe');
     iframe.id = 'af_iframe';
-    iframe.src = location.href;
+    iframe.src = hostHref;
     iframe.style.cssText = 'width:100%;height:420px;border:1px solid #7d510f;border-radius:3px;margin-top:8px;background:#fff;display:none;';
 
     // === Panel: natuv KH .vis tablazat ===
-    var panel = document.createElement('table');
+    var panel = D.createElement('table');
     panel.id = 'af_panel';
     panel.className = 'vis';
     panel.setAttribute('width','100%');
@@ -41,7 +61,7 @@
     h += '</span>';
     h += '</th></tr>';
 
-    // Torzs (a jatek parchment hattere a .vis td-n keresztul)
+    // Torzs
     h += '<tr><td style="padding:10px;">';
 
     // Stats
@@ -49,7 +69,7 @@
     h += 'Kor: <b id="af_round">-</b> &nbsp;|&nbsp; Oldal: <b id="af_page">-</b> &nbsp;|&nbsp; Kuldve: <b id="af_total">0</b>';
     h += '</div>';
 
-    // Progress bar (FarmGod-szeru)
+    // Progress bar
     h += '<div style="background:#d8c9a3;border-radius:3px;height:16px;overflow:hidden;margin-bottom:8px;border:1px solid #7d510f;">';
     h += '<div id="af_bar" style="background:#7d510f;height:100%;width:0%;transition:width 0.2s;"></div>';
     h += '</div>';
@@ -65,7 +85,7 @@
     h += '<label>Sablon: <select id="af_tpl"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
     h += '</div>';
 
-    // Log (terminal-stilus, szandekosan elut)
+    // Log
     h += '<div id="af_log" style="background:#111;color:#0f0;font-family:Consolas,monospace;font-size:11px;padding:8px;height:180px;overflow-y:auto;border-radius:3px;border:1px solid #333;"></div>';
 
     h += '</td></tr>';
@@ -73,21 +93,20 @@
     panel.innerHTML = h;
 
     // iframe a panel ala, kulon sorban
-    var ifRow = document.createElement('tr');
-    var ifCell = document.createElement('td');
+    var ifRow = D.createElement('tr');
+    var ifCell = D.createElement('td');
     ifCell.style.padding = '0 10px 10px';
     ifCell.appendChild(iframe);
     ifRow.appendChild(ifCell);
     panel.querySelector('tbody').appendChild(ifRow);
 
-    // === Beillesztes a "Rendelkezesre all" (#units_home) tabla ala ===
-    // Hibaturoen: ha nincs meg a horgony (pl. mobil layout), lebego overlay-kent jelenik meg.
+    // === Beillesztes a host dokumentumba, a "Rendelkezesre all" (#units_home) tabla ala ===
     function insertPanel(){
         try{
-            var anchor = document.querySelector('#units_home')
-                      || document.querySelector('#am_widget_farm')
-                      || document.querySelector('#plunder_list')
-                      || document.querySelector('#content_value');
+            var anchor = D.querySelector('#units_home')
+                      || D.querySelector('#am_widget_farm')
+                      || D.querySelector('#plunder_list')
+                      || D.querySelector('#content_value');
             if(anchor && anchor.id === 'content_value'){
                 anchor.insertBefore(panel, anchor.firstChild);
                 return true;
@@ -109,12 +128,12 @@
         panel.style.overflowY = 'auto';
         panel.style.zIndex = '2147483647';
         panel.style.boxShadow = '0 4px 16px rgba(0,0,0,0.5)';
-        document.body.appendChild(panel);
+        (D.body || document.body).appendChild(panel);
     }
 
     function gwin(){ return iframe.contentWindow; }
     function gdoc(){ return iframe.contentDocument || iframe.contentWindow.document; }
-    function $(id){ return document.getElementById(id); }
+    function $(id){ return D.getElementById(id); }
 
     // === Allapot ===
     var running=false, stopped=false, totalSent=0, currentRound=0;
@@ -124,7 +143,7 @@
         var el=$('af_log');
         var t=new Date();
         var ts=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0');
-        var line=document.createElement('div');
+        var line=D.createElement('div');
         line.style.color=color||'#0f0';
         line.textContent='['+ts+'] '+msg;
         el.appendChild(line);
