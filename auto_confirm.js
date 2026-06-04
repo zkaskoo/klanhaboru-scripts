@@ -1,385 +1,230 @@
-// Klanhaboru - Auto Farm Complete (Natuv KH-panel + rejtett worker-iframe + loop)
-// Keret-tudatos: mobilon a Farmkezelo gyakran egy iframe-ben tolt be, ezert megkeressuk
-// melyik dokumentumban van a farm, es ODA szurjuk be a panelt (kulonben telefonon nem nyilik meg).
-// A lapozas/kattintas sajat rejtett worker-iframe-ben tortenik, igy a panel tuleli az oldalvaltast.
+// Klanhaboru - Auto Farm Complete (Natuv KH-panel, kozvetlenul az oldalon)
+// FarmGod-barat: az osszes celpont egy oldalon van, ezert NINCS iframe es NINCS lapozas.
+// A panel a host dokumentumba kerul (fo oldal vagy same-origin alkeret), majd vegigkattintja
+// az aktiv A/B gombokat, ismetelve amig van. Telefonon (alternativ skin) is megnyilik.
 
 (function(){
-    var FARM_SEL = '#am_widget_farm, #units_home, #plunder_list';
+    try{
+        var FARM_SEL = '#am_widget_farm, #units_home, #plunder_list, .farmGod_table';
 
-    // === A farmot tartalmazo dokumentum megkeresese (fo oldal vagy alkeret) ===
-    function findFarmDoc(){
-        try{ if(document.querySelector(FARM_SEL)) return document; }catch(e){}
-        var frames = document.querySelectorAll('iframe, frame');
-        for(var i=0;i<frames.length;i++){
-            try{
-                var d = frames[i].contentDocument || (frames[i].contentWindow && frames[i].contentWindow.document);
-                if(d && d.querySelector(FARM_SEL)) return d;
-            }catch(e){}
-        }
-        return document; // fallback: fo oldal
-    }
-
-    var D = findFarmDoc();                       // host dokumentum (ide kerul a panel)
-    var DW = D.defaultView || window;            // host ablak
-    var hostHref = (function(){ try{ return DW.location.href; }catch(e){ return location.href; } })();
-
-    var hasFarm = !!D.querySelector(FARM_SEL);
-    var looksLikeGame = hasFarm
-        || (typeof game_data !== 'undefined')
-        || /game\.php|am_farm|screen=/i.test(location.href)
-        || !!document.querySelector('#content_value');
-    if(!looksLikeGame){
-        alert('Nyisd meg a Klanhaboru Farmkezelo oldalat!');
-        return;
-    }
-
-    // === Ujrafuttatas eseten takaritsuk el a regit ===
-    var oldPanel = D.getElementById('af_panel');
-    if(oldPanel) oldPanel.remove();
-
-    // === Worker iframe (itt tortenik a lapozas es a kattintas) ===
-    var iframe = D.createElement('iframe');
-    iframe.id = 'af_iframe';
-    iframe.src = hostHref;
-    iframe.style.cssText = 'width:100%;height:420px;border:1px solid #7d510f;border-radius:3px;margin-top:8px;background:#fff;display:none;';
-
-    // === Panel: natuv KH .vis tablazat ===
-    var panel = D.createElement('table');
-    panel.id = 'af_panel';
-    panel.className = 'vis';
-    panel.setAttribute('width','100%');
-    panel.style.cssText = 'width:100%;max-width:100%;box-sizing:border-box;margin-bottom:10px;';
-
-    var h = '';
-    h += '<tbody>';
-    // Fejlec (jatek .vis th + h4 stilus)
-    h += '<tr><th class="vis" style="text-align:left;">';
-    h += '<h4 style="display:inline-block;margin:0;">&#9876; Auto Farm Complete</h4>';
-    h += '<span style="float:right;">';
-    h += '<button id="af_view" title="Munkaablak (iframe) mutatasa/elrejtese" class="btn" style="padding:0 6px;margin-right:4px;">&#128065;</button>';
-    h += '<button id="af_close" title="Bezaras" class="btn" style="padding:0 7px;">&times;</button>';
-    h += '</span>';
-    h += '</th></tr>';
-
-    // Torzs
-    h += '<tr><td style="padding:10px;">';
-
-    // Stats
-    h += '<div style="margin-bottom:8px;font-size:12px;">';
-    h += 'Kor: <b id="af_round">-</b> &nbsp;|&nbsp; Oldal: <b id="af_page">-</b> &nbsp;|&nbsp; Kuldve: <b id="af_total">0</b>';
-    h += '</div>';
-
-    // Progress bar
-    h += '<div style="background:#d8c9a3;border-radius:3px;height:16px;overflow:hidden;margin-bottom:8px;border:1px solid #7d510f;">';
-    h += '<div id="af_bar" style="background:#7d510f;height:100%;width:0%;transition:width 0.2s;"></div>';
-    h += '</div>';
-
-    // Status
-    h += '<div id="af_status" style="margin-bottom:8px;color:#2d7d0f;font-weight:bold;font-size:12px;">Varakozas inditasra...</div>';
-
-    // Vezerlok
-    h += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;">';
-    h += '<button id="af_start" class="btn" style="font-weight:bold;padding:3px 18px;">Inditas</button>';
-    h += '<button id="af_stop" class="btn" style="font-weight:bold;padding:3px 16px;background:#c0392b;color:#fff;display:none;">Leallitas</button>';
-    h += '<label>Max oldal: <input id="af_maxpage" type="number" value="0" min="0" max="100" style="width:45px;text-align:center;" title="0 = osszes"></label>';
-    h += '<label>Sablon: <select id="af_tpl"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
-    h += '</div>';
-
-    // Log
-    h += '<div id="af_log" style="background:#111;color:#0f0;font-family:Consolas,monospace;font-size:11px;padding:8px;height:180px;overflow-y:auto;border-radius:3px;border:1px solid #333;"></div>';
-
-    h += '</td></tr>';
-    h += '</tbody>';
-    panel.innerHTML = h;
-
-    // iframe a panel ala, kulon sorban
-    var ifRow = D.createElement('tr');
-    var ifCell = D.createElement('td');
-    ifCell.style.padding = '0 10px 10px';
-    ifCell.appendChild(iframe);
-    ifRow.appendChild(ifCell);
-    panel.querySelector('tbody').appendChild(ifRow);
-
-    // === Beillesztes a host dokumentumba, a "Rendelkezesre all" (#units_home) tabla ala ===
-    function insertPanel(){
-        try{
-            var anchor = D.querySelector('#units_home')
-                      || D.querySelector('#am_widget_farm')
-                      || D.querySelector('#plunder_list')
-                      || D.querySelector('#content_value');
-            if(anchor && anchor.id === 'content_value'){
-                anchor.insertBefore(panel, anchor.firstChild);
-                return true;
-            } else if(anchor && anchor.parentNode){
-                anchor.parentNode.insertBefore(panel, anchor.nextSibling); // KOZVETLENUL a tabla ala
-                return true;
+        // === A farmot tartalmazo dokumentum megkeresese (fo oldal vagy alkeret) ===
+        function findFarmDoc(){
+            try{ if(document.querySelector(FARM_SEL)) return document; }catch(e){}
+            var frames = document.querySelectorAll('iframe, frame');
+            for(var i=0;i<frames.length;i++){
+                try{
+                    var d = frames[i].contentDocument || (frames[i].contentWindow && frames[i].contentWindow.document);
+                    if(d && d.querySelector(FARM_SEL)) return d;
+                }catch(e){}
             }
+            return document; // fallback: fo oldal
+        }
+
+        var D  = findFarmDoc();              // host dokumentum
+        var DW = D.defaultView || window;    // host ablak (getComputedStyle-hoz)
+
+        var looksLikeGame = !!D.querySelector(FARM_SEL)
+            || (typeof game_data !== 'undefined')
+            || /game\.php|am_farm|screen=/i.test(location.href)
+            || !!D.querySelector('#content_value');
+        if(!looksLikeGame){
+            alert('Nyisd meg a Klanhaboru Farmkezelo oldalat!');
+            return;
+        }
+
+        // === Ujrafuttatas eseten takaritsuk el a regit ===
+        var oldPanel = D.getElementById('af_panel');
+        if(oldPanel) oldPanel.remove();
+
+        // === Panel: natuv KH .vis tablazat ===
+        var panel = D.createElement('table');
+        panel.id = 'af_panel';
+        panel.className = 'vis';
+        panel.setAttribute('width','100%');
+        panel.style.cssText = 'width:100%;max-width:100%;box-sizing:border-box;margin-bottom:10px;';
+
+        var h = '';
+        h += '<tbody>';
+        h += '<tr><th class="vis" style="text-align:left;">';
+        h += '<h4 style="display:inline-block;margin:0;">&#9876; Auto Farm Complete</h4>';
+        h += '<span style="float:right;"><button id="af_close" title="Bezaras" class="btn" style="padding:0 7px;">&times;</button></span>';
+        h += '</th></tr>';
+
+        h += '<tr><td style="padding:10px;">';
+
+        // Stats
+        h += '<div style="margin-bottom:8px;font-size:12px;">';
+        h += 'Kor: <b id="af_round">-</b> &nbsp;|&nbsp; Aktualis: <b id="af_page">-</b> &nbsp;|&nbsp; Kuldve: <b id="af_total">0</b>';
+        h += '</div>';
+
+        // Progress bar
+        h += '<div style="background:#d8c9a3;border-radius:3px;height:16px;overflow:hidden;margin-bottom:8px;border:1px solid #7d510f;">';
+        h += '<div id="af_bar" style="background:#7d510f;height:100%;width:0%;transition:width 0.2s;"></div>';
+        h += '</div>';
+
+        // Status
+        h += '<div id="af_status" style="margin-bottom:8px;color:#2d7d0f;font-weight:bold;font-size:12px;">Varakozas inditasra...</div>';
+
+        // Vezerlok
+        h += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;">';
+        h += '<button id="af_start" class="btn" style="font-weight:bold;padding:3px 18px;">Inditas</button>';
+        h += '<button id="af_stop" class="btn" style="font-weight:bold;padding:3px 16px;background:#c0392b;color:#fff;display:none;">Leallitas</button>';
+        h += '<label>Sablon: <select id="af_tpl"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
+        h += '<label>Keslelt. (ms): <input id="af_delay" type="number" value="200" min="0" max="5000" step="50" style="width:55px;text-align:center;"></label>';
+        h += '<label title="Ujra es ujra vegigmegy amig van aktiv gomb"><input id="af_repeat" type="checkbox" checked> Ismetles</label>';
+        h += '</div>';
+
+        // Log
+        h += '<div id="af_log" style="background:#111;color:#0f0;font-family:Consolas,monospace;font-size:11px;padding:8px;height:180px;overflow-y:auto;border-radius:3px;border:1px solid #333;"></div>';
+
+        h += '</td></tr>';
+        h += '</tbody>';
+        panel.innerHTML = h;
+
+        // === Beillesztes (a #units_home ala, vagy a tartalom tetejere, vagy a farm tabla ele, vegul overlay) ===
+        var placed = false;
+        try{
+            var aUnits = D.querySelector('#units_home');
+            if(aUnits && aUnits.parentNode){ aUnits.parentNode.insertBefore(panel, aUnits.nextSibling); placed = true; }
+            if(!placed){ var cv = D.querySelector('#content_value'); if(cv){ cv.insertBefore(panel, cv.firstChild); placed = true; } }
+            if(!placed){ var ft = D.querySelector('#am_widget_farm, #plunder_list, .farmGod_table'); if(ft && ft.parentNode){ ft.parentNode.insertBefore(panel, ft); placed = true; } }
         }catch(e){}
-        return false;
-    }
-    if(!insertPanel()){
-        // Mobil / ismeretlen DOM: lebego, gorgetheto overlay a kepernyo tetejen
-        panel.style.position = 'fixed';
-        panel.style.top = '0';
-        panel.style.left = '0';
-        panel.style.right = '0';
-        panel.style.width = 'auto';
-        panel.style.maxHeight = '92vh';
-        panel.style.overflowY = 'auto';
-        panel.style.zIndex = '2147483647';
-        panel.style.boxShadow = '0 4px 16px rgba(0,0,0,0.5)';
-        (D.body || document.body).appendChild(panel);
-    }
+        if(!placed){
+            panel.style.position='fixed'; panel.style.top='0'; panel.style.left='0'; panel.style.right='0';
+            panel.style.width='auto'; panel.style.maxHeight='92vh'; panel.style.overflowY='auto';
+            panel.style.zIndex='2147483647'; panel.style.boxShadow='0 4px 16px rgba(0,0,0,0.5)';
+            (D.body||document.body).appendChild(panel);
+        }
 
-    function gwin(){ return iframe.contentWindow; }
-    function gdoc(){ return iframe.contentDocument || iframe.contentWindow.document; }
-    function $(id){ return D.getElementById(id); }
+        function $(id){ return D.getElementById(id); }
 
-    // === Allapot ===
-    var running=false, stopped=false, totalSent=0, currentRound=0;
+        // === Allapot ===
+        var running=false, stopped=false, totalSent=0, currentRound=0;
 
-    // === Log ===
-    function log(msg,color){
-        var el=$('af_log');
-        var t=new Date();
-        var ts=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0');
-        var line=D.createElement('div');
-        line.style.color=color||'#0f0';
-        line.textContent='['+ts+'] '+msg;
-        el.appendChild(line);
-        el.scrollTop=el.scrollHeight;
-    }
+        // === Log ===
+        function log(msg,color){
+            var el=$('af_log');
+            var t=new Date();
+            var ts=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0');
+            var line=D.createElement('div');
+            line.style.color=color||'#0f0';
+            line.textContent='['+ts+'] '+msg;
+            el.appendChild(line);
+            el.scrollTop=el.scrollHeight;
+        }
 
-    // === Sleep (MessageChannel - nem throttle-olja a Chrome hatterben) ===
-    function sl(ms){
-        return new Promise(function(r){
-            var s=performance.now();
-            var ch=new MessageChannel();
-            ch.port1.onmessage=function(){ if(performance.now()-s>=ms){r();}else{ch.port2.postMessage('');} };
-            ch.port2.postMessage('');
-        });
-    }
+        // === Sleep (MessageChannel - nem throttle-olja a Chrome hatterben) ===
+        function sl(ms){
+            return new Promise(function(r){
+                var s=performance.now();
+                var ch=new MessageChannel();
+                ch.port1.onmessage=function(){ if(performance.now()-s>=ms){r();}else{ch.port2.postMessage('');} };
+                ch.port2.postMessage('');
+            });
+        }
 
-    // === Navigacio az iframe-ben + varakozas a load-ra ===
-    function navigate(url){
-        return new Promise(function(resolve){
-            var done=false;
-            function onload(){ if(done)return; done=true; iframe.removeEventListener('load',onload); resolve(); }
-            iframe.addEventListener('load',onload);
-            try{ gwin().location.href=url; }catch(e){ iframe.src=url; }
-            setTimeout(function(){ if(!done){done=true; iframe.removeEventListener('load',onload); resolve();} },15000);
-        });
-    }
-
-    // === Varakozas amig az iframe oldala betoltodik ===
-    async function waitForPage(){
-        var tries=0;
-        while(tries<60){
-            tries++;
+        // === Farm gombok keresese az AKTUALIS oldalon (A, B, vagy mindketto). farmGod-ot preferalja. ===
+        function findFarmButtons(){
+            var tpl=$('af_tpl').value;
+            var out=[];
             try{
-                var doc=gdoc();
-                if(doc.readyState==='complete'&&doc.querySelector('#plunder_list, #am_widget_farm, table')){
-                    await sl(500);
-                    return;
+                var hasFarmGod=D.querySelector('a.farmGod_icon')!==null;
+                var selector='';
+                if(hasFarmGod){
+                    if(tpl==='a')selector='a.farmGod_icon.farm_icon_a';
+                    else if(tpl==='b')selector='a.farmGod_icon.farm_icon_b';
+                    else selector='a.farmGod_icon.farm_icon_a,a.farmGod_icon.farm_icon_b';
+                }else{
+                    if(tpl==='a')selector='a.farm_icon_a';
+                    else if(tpl==='b')selector='a.farm_icon_b';
+                    else selector='a.farm_icon_a,a.farm_icon_b';
+                }
+                var btns=D.querySelectorAll(selector);
+                for(var i=0;i<btns.length;i++){
+                    var btn=btns[i];
+                    var st=(DW.getComputedStyle?DW.getComputedStyle(btn):null);
+                    if(st&&(st.display==='none'||st.visibility==='hidden'))continue;
+                    if(btn.classList.contains('disabled')||btn.classList.contains('clicked'))continue;
+                    out.push(btn);
                 }
             }catch(e){}
-            await sl(500);
+            return out;
         }
-    }
 
-    // === Oldalak URL-jei az iframe DOM-jabol ===
-    function getPageUrls(){
-        var urls=[];
-        try{
-            var doc=gdoc();
-            var nav=doc.getElementById('plunder_list_nav');
-            if(!nav) return urls;
-            var items=nav.querySelectorAll('.paged-nav-item');
-            for(var i=0;i<items.length;i++){
-                var el=items[i];
-                if(el.tagName==='STRONG'){ urls.push(gwin().location.href); }
-                else if(el.tagName==='A'&&el.href){ urls.push(el.href); }
+        // === Egy vegigpaszta a gombokon ===
+        async function clickPass(){
+            var buttons=findFarmButtons();
+            var totalNow=buttons.length;
+            if(totalNow===0){
+                log('Nincs tobb aktiv '+$('af_tpl').value.toUpperCase()+' gomb.','#999');
+                return 0;
             }
-        }catch(e){}
-        return urls;
-    }
-
-    // === Aktualis oldal index ===
-    function getCurrentPageIndex(){
-        try{
-            var nav=gdoc().getElementById('plunder_list_nav');
-            if(!nav) return 0;
-            var items=nav.querySelectorAll('.paged-nav-item');
-            for(var i=0;i<items.length;i++){ if(items[i].tagName==='STRONG') return i; }
-        }catch(e){}
-        return 0;
-    }
-
-    // === Farm gombok keresese (A, B, vagy mindketto). farmGod gombokat preferalja. ===
-    function findFarmButtons(){
-        var tpl=$('af_tpl').value;
-        var aB=[];
-        try{
-            var doc=gdoc();
-            var hasFarmGod=doc.querySelector('a.farmGod_icon')!==null;
-            var selector='';
-            if(hasFarmGod){
-                if(tpl==='a')selector='a.farmGod_icon.farm_icon_a';
-                else if(tpl==='b')selector='a.farmGod_icon.farm_icon_b';
-                else selector='a.farmGod_icon.farm_icon_a,a.farmGod_icon.farm_icon_b';
-            }else{
-                if(tpl==='a')selector='a.farm_icon_a';
-                else if(tpl==='b')selector='a.farm_icon_b';
-                else selector='a.farm_icon_a,a.farm_icon_b';
-            }
-            var btns=doc.querySelectorAll(selector);
-            for(var i=0;i<btns.length;i++)aB.push(btns[i]);
-            var active=[];
-            for(var j=0;j<aB.length;j++){
-                var btn=aB[j];
-                var st=gwin().getComputedStyle(btn);
-                if(st.display==='none'||st.visibility==='hidden')continue;
-                if(btn.classList.contains('disabled')||btn.classList.contains('clicked'))continue;
-                active.push(btn);
-            }
-            return active;
-        }catch(e){ return []; }
-    }
-
-    // === UI frissites ===
-    function updateUI(round,page,totalPages){
-        $('af_round').textContent=String(round);
-        $('af_page').textContent=String(page+1)+'/'+totalPages;
-        $('af_total').textContent=String(totalSent);
-    }
-
-    // === Egy oldal feldolgozasa ===
-    async function processPage(){
-        var buttons=findFarmButtons();
-        var pageUrls=getPageUrls();
-        var totalPages=pageUrls.length||1;
-        var currentPage=getCurrentPageIndex();
-        updateUI(currentRound,currentPage,totalPages);
-        if(buttons.length===0){
-            var tplName=$('af_tpl').value.toUpperCase();
-            log('Nincs aktiv '+tplName+' gomb ezen az oldalon.','#999');
-            return 0;
-        }
-        var tplName2=$('af_tpl').value.toUpperCase();
-        log('Talaltam '+buttons.length+' '+tplName2+' gombot. Kattintas...');
-        var sent=0;
-        for(var i=0;i<buttons.length;i++){
-            if(stopped)break;
-            $('af_status').textContent='Kattintas: '+(i+1)+'/'+buttons.length+' (Oldal '+(currentPage+1)+'/'+totalPages+')';
-            var pct=Math.round(((i+1)/buttons.length)*100);
-            $('af_bar').style.width=pct+'%';
-            try{ buttons[i].click(); }catch(e){}
-            sent++;totalSent++;
-            $('af_total').textContent=String(totalSent);
-            await sl(200);
-        }
-        log('['+$('af_tpl').value.toUpperCase()+'] '+sent+' tamadas elkuldve errol az oldalrol.','#0f0');
-        return sent;
-    }
-
-    // === Fo loop ===
-    async function mainLoop(){
-        running=true;stopped=false;totalSent=0;currentRound=0;
-        $('af_start').style.display='none';
-        $('af_stop').style.display='';
-        $('af_stop').disabled=false; $('af_stop').style.opacity='1';
-        $('af_log').innerHTML='';
-        log('=== AUTO FARM COMPLETE INDITAS ===','#ff0');
-
-        log('Munkaablak betoltese...');
-        await waitForPage();
-
-        var pageUrls=getPageUrls();
-        var totalPages=pageUrls.length||1;
-        log('Talalt oldalak: '+totalPages,'#ff0');
-        log('');
-
-        while(!stopped){
-            currentRound++;
-            var maxPage=parseInt($('af_maxpage').value)||0;
-            var usePages=maxPage>0?Math.min(maxPage,totalPages):totalPages;
-            log('========== '+currentRound+'. KOR ('+usePages+'/'+totalPages+' oldal) ==========','#0ff');
-            var roundSent=0;
-
-            for(var p=0;p<usePages;p++){
+            log('Talaltam '+totalNow+' '+$('af_tpl').value.toUpperCase()+' gombot. Kattintas...');
+            var delay=parseInt($('af_delay').value); if(isNaN(delay)||delay<0)delay=200;
+            var sent=0;
+            for(var i=0;i<buttons.length;i++){
                 if(stopped)break;
+                $('af_status').textContent='Kattintas: '+(i+1)+'/'+totalNow;
+                $('af_page').textContent=(i+1)+'/'+totalNow;
+                $('af_bar').style.width=Math.round(((i+1)/totalNow)*100)+'%';
+                try{ buttons[i].click(); }catch(e){}
+                sent++; totalSent++;
+                $('af_total').textContent=String(totalSent);
+                if(delay>0) await sl(delay);
+            }
+            log('['+$('af_tpl').value.toUpperCase()+'] '+sent+' tamadas elkuldve.','#0f0');
+            return sent;
+        }
 
-                var currentPage=getCurrentPageIndex();
-                if(currentPage!==p){
-                    pageUrls=getPageUrls();
-                    if(pageUrls[p]){
-                        log('Navigalas oldal '+(p+1)+'-re...');
-                        await navigate(pageUrls[p]);
-                        await waitForPage();
-                    }
-                }
+        // === Fo loop ===
+        async function mainLoop(){
+            running=true;stopped=false;totalSent=0;currentRound=0;
+            $('af_start').style.display='none';
+            $('af_stop').style.display='';
+            $('af_stop').disabled=false; $('af_stop').style.opacity='1';
+            $('af_log').innerHTML='';
+            log('=== AUTO FARM COMPLETE INDITAS ===','#ff0');
 
-                updateUI(currentRound,p,usePages);
-                log('--- Oldal '+(p+1)+'/'+usePages+' ---','#0ff');
+            var repeat=$('af_repeat').checked;
+            var maxPasses=repeat?100:1;
+
+            while(!stopped && currentRound<maxPasses){
+                currentRound++;
+                $('af_round').textContent=String(currentRound);
+                if(repeat) log('--- '+currentRound+'. kor ---','#0ff');
                 $('af_bar').style.width='0%';
 
-                var sent=await processPage();
-                roundSent+=sent;
+                var sent=await clickPass();
+                if(stopped) break;
+                if(sent===0){ log('Kesz - nincs tobb cel.','#f90'); break; }
+                if(!repeat) break;
 
-                if(p<usePages-1&&!stopped)await sl(800);
-            }
-
-            if(stopped)break;
-
-            if(roundSent===0){
-                log('');
-                log('Nincs tobb cel / egysegek elfogytak. Leallitas.','#f90');
-                break;
+                log('Var a kovetkezo korre...','#0ff');
+                await sl(1500); // FarmGod-nak ido a frissulesre
             }
 
             log('');
-            log('Kor vege, '+roundSent+' tamadas. Varakozas...','#0ff');
-            await sl(2000);
-
-            pageUrls=getPageUrls();
-            totalPages=pageUrls.length||1;
-            if(pageUrls[0]&&getCurrentPageIndex()!==0){
-                log('Vissza az 1. oldalra...');
-                await navigate(pageUrls[0]);
-                await waitForPage();
-                pageUrls=getPageUrls();
-                totalPages=pageUrls.length||1;
-            }
+            log('=== KESZ === Ossz: '+totalSent+' tamadas','#ff0');
+            $('af_status').textContent='Kesz! '+totalSent+' tamadas elkuldve.';
+            $('af_bar').style.width='100%';
+            $('af_bar').style.background='#2d7d0f';
+            $('af_start').style.display='';
+            $('af_stop').style.display='none';
+            running=false;
         }
 
-        log('');
-        log('=== LEALLITVA === Ossz: '+totalSent+' tamadas','#ff0');
-        $('af_status').textContent='Kesz! '+totalSent+' tamadas elkuldve.';
-        $('af_bar').style.width='100%';
-        $('af_bar').style.background='#2d7d0f';
-        $('af_start').style.display='';
-        $('af_stop').style.display='none';
-        running=false;
+        // === Gombok ===
+        $('af_start').addEventListener('click',function(){ if(!running) mainLoop(); });
+        $('af_stop').addEventListener('click',function(){
+            stopped=true;
+            this.style.opacity='0.5';this.disabled=true;
+            $('af_status').textContent='Leallitas...';
+            log('Leallitas...','#f90');
+            setTimeout(function(){ var s=$('af_stop'); if(s){ s.disabled=false; s.style.opacity='1'; } },2000);
+        });
+        $('af_close').addEventListener('click',function(){ stopped=true; panel.remove(); });
+
+    }catch(err){
+        alert('Auto Farm Complete hiba: '+(err&&err.message?err.message:err));
     }
-
-    // === Gombok ===
-    $('af_start').addEventListener('click',function(){ if(!running) mainLoop(); });
-    $('af_stop').addEventListener('click',function(){
-        stopped=true;
-        this.style.opacity='0.5';this.disabled=true;
-        $('af_status').textContent='Leallitas...';
-        log('Leallitas...','#f90');
-        setTimeout(function(){ $('af_stop').disabled=false; $('af_stop').style.opacity='1'; },2000);
-    });
-
-    // Munkaablak (iframe) mutatasa/elrejtese
-    $('af_view').addEventListener('click',function(){
-        iframe.style.display = (iframe.style.display==='none') ? 'block' : 'none';
-    });
-
-    // Bezaras
-    $('af_close').addEventListener('click',function(){
-        stopped=true;
-        panel.remove();
-    });
 })();
