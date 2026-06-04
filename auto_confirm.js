@@ -1,5 +1,5 @@
-// Klanhaboru - Auto Farm Complete (Beagyazott panel + rejtett worker-iframe + loop)
-// A panel az oldalra van beagyazva (nem kulon popup), igy nem blokkolja a popup-blokkolo.
+// Klanhaboru - Auto Farm Complete (Beagyazott jatek-panel + rejtett worker-iframe + loop)
+// A panel a jatek DOM-jaba kerul (a farm lista fole), jatek-stilusban, mintha eredeti funkcio lenne.
 // A lapozas/kattintas egy rejtett iframe-ben tortenik, ezert a panel tuleli az oldalvaltast.
 // Vegigkattintja az A/B gombokat, lapoz, loopol amig van egyseg.
 
@@ -12,63 +12,70 @@
     // === Ujrafuttatas eseten takaritsuk el a regit ===
     var oldPanel = document.getElementById('af_panel');
     if(oldPanel) oldPanel.remove();
-    var oldIframe = document.getElementById('af_iframe');
-    if(oldIframe) oldIframe.remove();
 
     // === Worker iframe (itt tortenik a lapozas es a kattintas) ===
     var iframe = document.createElement('iframe');
     iframe.id = 'af_iframe';
     iframe.src = location.href;
-    iframe.style.cssText = 'position:fixed;right:10px;bottom:10px;width:520px;height:400px;border:2px solid #7d510f;border-radius:4px;z-index:999998;background:#fff;display:none;';
-    document.body.appendChild(iframe);
+    iframe.style.cssText = 'width:100%;height:420px;border:1px solid #7d510f;border-radius:3px;margin-top:8px;background:#fff;display:none;';
 
-    function gwin(){ return iframe.contentWindow; }
-    function gdoc(){ return iframe.contentDocument || iframe.contentWindow.document; }
-
-    // === Panel DOM ===
+    // === Panel DOM (beagyazva a jatek tartalmaba, jatek-stilusban) ===
     var panel = document.createElement('div');
     panel.id = 'af_panel';
-    panel.style.cssText = 'position:fixed;top:80px;left:80px;width:360px;z-index:999999;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#f4e4bc;background:#1a1a1a;border:2px solid #7d510f;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,0.6);overflow:hidden;';
+    panel.style.cssText = 'width:100%;box-sizing:border-box;margin:0 0 12px 0;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#5d4a1f;background:#f4e4bc;border:1px solid #7d510f;border-radius:4px;overflow:hidden;';
 
     var h = '';
-    // Header (egyben fogantyu a huzashoz)
-    h += '<div id="af_head" style="background:#7d510f;padding:8px 12px;font-size:14px;font-weight:bold;cursor:move;display:flex;justify-content:space-between;align-items:center;">';
-    h += '<span>Auto Farm Complete</span>';
+    // Header (jatek-stilusu barna sav)
+    h += '<div style="background:#7d510f;padding:6px 12px;font-size:13px;font-weight:bold;color:#f4e4bc;display:flex;justify-content:space-between;align-items:center;">';
+    h += '<span>&#9876; Auto Farm Complete</span>';
     h += '<span><button id="af_view" title="Iframe mutatasa/elrejtese" style="background:transparent;color:#f4e4bc;border:1px solid #f4e4bc;border-radius:3px;cursor:pointer;font-size:11px;padding:1px 6px;margin-right:4px;">&#128065;</button>';
     h += '<button id="af_close" title="Bezaras" style="background:transparent;color:#f4e4bc;border:none;cursor:pointer;font-size:16px;font-weight:bold;line-height:1;">&times;</button></span>';
     h += '</div>';
 
-    h += '<div style="padding:12px 15px;">';
+    h += '<div style="padding:10px 12px;">';
 
     // Stats
-    h += '<div style="background:#2a1a0a;border:1px solid #7d510f;padding:8px 12px;border-radius:4px;margin-bottom:10px;">';
-    h += '<div>Kor: <b id="af_round">-</b> | Oldal: <b id="af_page">-</b> | Kuldve: <b id="af_total">0</b></div>';
+    h += '<div style="background:#fff8e8;border:1px solid #c1a264;padding:6px 10px;border-radius:3px;margin-bottom:8px;">';
+    h += 'Kor: <b id="af_round">-</b> | Oldal: <b id="af_page">-</b> | Kuldve: <b id="af_total">0</b>';
     h += '</div>';
 
     // Progress bar
-    h += '<div style="background:#2a1a0a;border-radius:4px;height:18px;overflow:hidden;margin-bottom:10px;border:1px solid #7d510f;">';
+    h += '<div style="background:#d8c9a3;border-radius:3px;height:16px;overflow:hidden;margin-bottom:8px;border:1px solid #7d510f;">';
     h += '<div id="af_bar" style="background:#7d510f;height:100%;width:0%;transition:width 0.2s;"></div>';
     h += '</div>';
 
     // Status
-    h += '<div id="af_status" style="margin-bottom:10px;color:#0f0;">Varakozas inditasra...</div>';
+    h += '<div id="af_status" style="margin-bottom:8px;color:#2d7d0f;font-weight:bold;">Varakozas inditasra...</div>';
 
-    // Buttons
-    h += '<div style="margin-bottom:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">';
-    h += '<button id="af_start" style="background:#7d510f;color:#f4e4bc;border:none;padding:8px 25px;font-size:13px;font-weight:bold;cursor:pointer;border-radius:4px;">Inditas</button>';
-    h += '<button id="af_stop" style="background:#c0392b;color:#fff;border:none;padding:8px 20px;font-size:13px;font-weight:bold;cursor:pointer;border-radius:4px;display:none;">Leallitas</button>';
-    h += '<label style="font-size:11px;">Max oldal: <input id="af_maxpage" type="number" value="0" min="0" max="100" style="width:45px;text-align:center;padding:2px;border:1px solid #7d510f;background:#2a1a0a;color:#f4e4bc;font-size:11px;" title="0 = osszes"></label>';
-    h += '<label style="font-size:11px;">Sablon: <select id="af_tpl" style="padding:2px;border:1px solid #7d510f;background:#2a1a0a;color:#f4e4bc;font-size:11px;"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
+    // Controls
+    h += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+    h += '<button id="af_start" style="background:#7d510f;color:#f4e4bc;border:none;padding:6px 22px;font-size:13px;font-weight:bold;cursor:pointer;border-radius:3px;">Inditas</button>';
+    h += '<button id="af_stop" style="background:#c0392b;color:#fff;border:none;padding:6px 18px;font-size:13px;font-weight:bold;cursor:pointer;border-radius:3px;display:none;">Leallitas</button>';
+    h += '<label style="font-size:11px;">Max oldal: <input id="af_maxpage" type="number" value="0" min="0" max="100" style="width:45px;text-align:center;padding:2px;border:1px solid #7d510f;background:#fff8e8;color:#5d4a1f;font-size:11px;" title="0 = osszes"></label>';
+    h += '<label style="font-size:11px;">Sablon: <select id="af_tpl" style="padding:2px;border:1px solid #7d510f;background:#fff8e8;color:#5d4a1f;font-size:11px;"><option value="a">A</option><option value="b">B</option><option value="ab">A + B</option></select></label>';
     h += '</div>';
 
     // Log
-    h += '<div id="af_log" style="background:#111;color:#0f0;font-family:Consolas,monospace;font-size:11px;padding:8px;height:200px;overflow-y:auto;border-radius:4px;border:1px solid #333;"></div>';
+    h += '<div id="af_log" style="background:#111;color:#0f0;font-family:Consolas,monospace;font-size:11px;padding:8px;height:180px;overflow-y:auto;border-radius:3px;border:1px solid #333;"></div>';
 
     h += '</div>';
     panel.innerHTML = h;
-    document.body.appendChild(panel);
+    panel.appendChild(iframe);
 
-    // === Rovid hivatkozasok ===
+    // === Beillesztes a jatek tartalmaba (a farm widget / lista fole) ===
+    var anchor = document.querySelector('#am_widget_farm')
+              || document.querySelector('#plunder_list')
+              || document.querySelector('#content_value');
+    if(anchor && anchor.id !== 'content_value' && anchor.parentNode){
+        anchor.parentNode.insertBefore(panel, anchor);
+    } else if(anchor){
+        anchor.insertBefore(panel, anchor.firstChild); // content_value teteje
+    } else {
+        document.body.insertBefore(panel, document.body.firstChild);
+    }
+
+    function gwin(){ return iframe.contentWindow; }
+    function gdoc(){ return iframe.contentDocument || iframe.contentWindow.document; }
     function $(id){ return document.getElementById(id); }
 
     // === Allapot ===
@@ -313,28 +320,9 @@
         iframe.style.display = (iframe.style.display==='none') ? 'block' : 'none';
     });
 
-    // Bezaras (panel + iframe)
+    // Bezaras
     $('af_close').addEventListener('click',function(){
         stopped=true;
         panel.remove();
-        iframe.remove();
     });
-
-    // === Panel huzhatosaga (header fogantyu) ===
-    (function(){
-        var head=$('af_head'), dragging=false, ox=0, oy=0;
-        head.addEventListener('mousedown',function(e){
-            if(e.target.tagName==='BUTTON')return;
-            dragging=true;
-            ox=e.clientX-panel.offsetLeft;
-            oy=e.clientY-panel.offsetTop;
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove',function(e){
-            if(!dragging)return;
-            panel.style.left=(e.clientX-ox)+'px';
-            panel.style.top=(e.clientY-oy)+'px';
-        });
-        document.addEventListener('mouseup',function(){ dragging=false; });
-    })();
 })();
