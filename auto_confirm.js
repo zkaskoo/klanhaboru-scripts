@@ -4,8 +4,12 @@
 // Vegigkattintja az A/B gombokat, lapoz, loopol amig van egyseg.
 
 (function(){
-    if(typeof game_data === 'undefined'){
-        alert('Nyisd meg a Klanhaboru oldalat!');
+    // Indito-ellenorzes (mobilon a game_data nem mindig elerheto, ezert tobb jelet is nezunk)
+    var looksLikeGame = (typeof game_data !== 'undefined')
+        || /game\.php|am_farm|screen=/i.test(location.href)
+        || !!document.querySelector('#units_home, #am_widget_farm, #plunder_list, #content_value');
+    if(!looksLikeGame){
+        alert('Nyisd meg a Klanhaboru Farmkezelo oldalat!');
         return;
     }
 
@@ -24,7 +28,7 @@
     panel.id = 'af_panel';
     panel.className = 'vis';
     panel.setAttribute('width','100%');
-    panel.style.cssText = 'width:100%;margin-bottom:10px;';
+    panel.style.cssText = 'width:100%;max-width:100%;box-sizing:border-box;margin-bottom:10px;';
 
     var h = '';
     h += '<tbody>';
@@ -77,16 +81,35 @@
     panel.querySelector('tbody').appendChild(ifRow);
 
     // === Beillesztes a "Rendelkezesre all" (#units_home) tabla ala ===
-    var anchor = document.querySelector('#units_home')
-              || document.querySelector('#am_widget_farm')
-              || document.querySelector('#plunder_list')
-              || document.querySelector('#content_value');
-    if(anchor && anchor.id === 'content_value'){
-        anchor.insertBefore(panel, anchor.firstChild);
-    } else if(anchor && anchor.parentNode){
-        anchor.parentNode.insertBefore(panel, anchor.nextSibling); // KOZVETLENUL a tabla ala
-    } else {
-        document.body.insertBefore(panel, document.body.firstChild);
+    // Hibaturoen: ha nincs meg a horgony (pl. mobil layout), lebego overlay-kent jelenik meg.
+    function insertPanel(){
+        try{
+            var anchor = document.querySelector('#units_home')
+                      || document.querySelector('#am_widget_farm')
+                      || document.querySelector('#plunder_list')
+                      || document.querySelector('#content_value');
+            if(anchor && anchor.id === 'content_value'){
+                anchor.insertBefore(panel, anchor.firstChild);
+                return true;
+            } else if(anchor && anchor.parentNode){
+                anchor.parentNode.insertBefore(panel, anchor.nextSibling); // KOZVETLENUL a tabla ala
+                return true;
+            }
+        }catch(e){}
+        return false;
+    }
+    if(!insertPanel()){
+        // Mobil / ismeretlen DOM: lebego, gorgetheto overlay a kepernyo tetejen
+        panel.style.position = 'fixed';
+        panel.style.top = '0';
+        panel.style.left = '0';
+        panel.style.right = '0';
+        panel.style.width = 'auto';
+        panel.style.maxHeight = '92vh';
+        panel.style.overflowY = 'auto';
+        panel.style.zIndex = '2147483647';
+        panel.style.boxShadow = '0 4px 16px rgba(0,0,0,0.5)';
+        document.body.appendChild(panel);
     }
 
     function gwin(){ return iframe.contentWindow; }
